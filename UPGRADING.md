@@ -204,7 +204,7 @@ func TestApp(t *testing.T) {
 	app := NewSimappWithCustomOptions(t, false, SetupOptions{
 		Logger:  logger.With("instance", "first"),
 		DB:      db,
-		AppOpts: simtestutil.NewAppOptionsWithFlagHome(t.TempDir()),
+		AppOpts: simtestutil.NewAppOptionsWithFlagHomeAndChainID(t.TempDir(), "SimApp"),
 	})
 
 	/*

@@ -136,7 +136,7 @@ func buildGenesisState(t *testing.T, accounts []account) ([]byte, *cmttypes.Vali
 		log.NewNopLogger(),
 		dbm.NewMemDB(),
 		true,
-		simtestutil.NewAppOptionsWithFlagHome(t.TempDir()),
+		simtestutil.NewAppOptionsWithFlagHomeAndChainID(t.TempDir(), testChainID),
 		baseapp.SetChainID(testChainID),
 	)
 
@@ -184,7 +184,7 @@ func newTestApplication(
 		logger,
 		db,
 		true,
-		simtestutil.NewAppOptionsWithFlagHome(tb.TempDir()),
+		simtestutil.NewAppOptionsWithFlagHomeAndChainID(tb.TempDir(), testChainID),
 		baseapp.SetChainID(testChainID),
 	)
 

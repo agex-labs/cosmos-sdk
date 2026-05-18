@@ -24,6 +24,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
+	"github.com/cosmos/cosmos-sdk/client/flags"
 	nodeservice "github.com/cosmos/cosmos-sdk/client/grpc/node"
 	"github.com/cosmos/cosmos-sdk/enterprise/poa/examples/migrate-from-pos"
 	"github.com/cosmos/cosmos-sdk/enterprise/poa/examples/migrate-from-pos/params"
@@ -38,8 +39,17 @@ import (
 // NewRootCmd creates a new root command for simd. It is called once in the
 // main function.
 func NewRootCmd() *cobra.Command {
+	tempHome, err := os.MkdirTemp("", "poa-migrate-rootcmd-*")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(tempHome)
+
 	// we "pre"-instantiate the application for getting the injected/configured encoding configuration
-	tempApp := simapp.NewSimApp(log.NewNopLogger(), dbm.NewMemDB(), true, simtestutil.NewAppOptionsWithFlagHome(simapp.DefaultNodeHome))
+	tempApp := simapp.NewSimApp(log.NewNopLogger(), dbm.NewMemDB(), true, simtestutil.AppOptionsMap{
+		flags.FlagHome:    tempHome,
+		flags.FlagChainID: "poa-migrate-rootcmd",
+	})
 	encodingConfig := params.EncodingConfig{
 		InterfaceRegistry: tempApp.InterfaceRegistry(),
 		Codec:             tempApp.AppCodec(),

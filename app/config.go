@@ -112,8 +112,7 @@ type BlockSTMConfig struct {
 }
 
 // DefaultSDKAppConfig returns the single canonical app configuration baseline.
-// It always includes server.DefaultBaseappOptions and applies a chain-id
-// fallback (AppName) when app opts do not set one explicitly.
+// It always includes server.DefaultBaseappOptions.
 func DefaultSDKAppConfig(
 	name string,
 	opts servertypes.AppOptions,
@@ -126,21 +125,14 @@ func DefaultSDKAppConfig(
 		panic("app options must include --home")
 	}
 
-	wrappedOpts := appOptionsWithDefaults{
-		base: opts,
-		defaults: map[string]any{
-			flags.FlagChainID: name,
-		},
-	}
-
-	baseOpts := append(server.DefaultBaseappOptions(wrappedOpts), slices.Clone(baseAppOptions)...)
+	baseOpts := append(server.DefaultBaseappOptions(opts), slices.Clone(baseAppOptions)...)
 
 	return SDKAppConfig{
 		AppName: name,
 
 		InterfaceRegistryOptions: defaultInterfaceRegistryOptions,
 
-		AppOpts:        wrappedOpts,
+		AppOpts:        opts,
 		BaseAppOptions: baseOpts,
 		WithAuthz:      true,
 		WithEpochs:     true,
@@ -272,24 +264,4 @@ func cloneModuleAccountPerms(src map[string][]string) map[string][]string {
 		cloned[moduleName] = slices.Clone(perms)
 	}
 	return cloned
-}
-
-type appOptionsWithDefaults struct {
-	base     servertypes.AppOptions
-	defaults map[string]any
-}
-
-func (a appOptionsWithDefaults) Get(key string) any {
-	v := a.base.Get(key)
-	switch t := v.(type) {
-	case nil:
-		return a.defaults[key]
-	case string:
-		if t == "" {
-			if dv, ok := a.defaults[key]; ok {
-				return dv
-			}
-		}
-	}
-	return v
 }

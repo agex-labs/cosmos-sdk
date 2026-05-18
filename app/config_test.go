@@ -74,15 +74,30 @@ func TestDefaultSDKAppConfigRequiresAppOptions(t *testing.T) {
 	_ = DefaultSDKAppConfig("app", nil)
 }
 
-func TestDefaultSDKAppConfigInjectsChainIDFallback(t *testing.T) {
+func TestDefaultSDKAppConfigUsesProvidedChainID(t *testing.T) {
+	opts := appOptionsMap{
+		flags.FlagHome:    t.TempDir(),
+		flags.FlagChainID: "custom-chain",
+	}
+
+	cfg := DefaultSDKAppConfig("my-app", opts)
+	if got := cfg.AppOpts.Get(flags.FlagChainID); got != "custom-chain" {
+		t.Fatalf("expected provided chain-id to be preserved, got %v", got)
+	}
+}
+
+func TestDefaultSDKAppConfigWithoutChainIDPanicsWithoutGenesis(t *testing.T) {
 	opts := appOptionsMap{
 		flags.FlagHome: t.TempDir(),
 	}
 
-	cfg := DefaultSDKAppConfig("my-app", opts)
-	if got := cfg.AppOpts.Get(flags.FlagChainID); got != "my-app" {
-		t.Fatalf("expected chain-id fallback to app name, got %v", got)
-	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic when neither chain-id nor genesis is available")
+		}
+	}()
+
+	_ = DefaultSDKAppConfig("my-app", opts)
 }
 
 func TestSDKAppConfigValidateBlockSTMWorkers(t *testing.T) {
@@ -98,7 +113,8 @@ func TestSDKAppConfigValidateBlockSTMWorkers(t *testing.T) {
 func testAppOptions(t *testing.T) appOptionsMap {
 	t.Helper()
 	return appOptionsMap{
-		flags.FlagHome: t.TempDir(),
+		flags.FlagHome:    t.TempDir(),
+		flags.FlagChainID: "test-chain",
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/app"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
+	"github.com/cosmos/cosmos-sdk/client/flags"
 	nodeservice "github.com/cosmos/cosmos-sdk/client/grpc/node"
 	"github.com/cosmos/cosmos-sdk/server"
 	simtestutil "github.com/cosmos/cosmos-sdk/testutil/sims"
@@ -25,9 +26,13 @@ func NewRootCmd() *cobra.Command {
 	if err != nil {
 		panic(err)
 	}
+	defer os.RemoveAll(tempHome)
 
 	// we "pre"-instantiate the application for getting the injected/configured encoding configuration
-	tempApp := simapp.NewSimApp(log.NewNopLogger(), dbm.NewMemDB(), true, simtestutil.NewAppOptionsWithFlagHome(tempHome))
+	tempApp := simapp.NewSimApp(log.NewNopLogger(), dbm.NewMemDB(), true, simtestutil.AppOptionsMap{
+		flags.FlagHome:    tempHome,
+		flags.FlagChainID: "simapp-rootcmd",
+	})
 
 	// TODO: can we pass a generic constructor in here?
 	return RootCmdFactory(tempApp)

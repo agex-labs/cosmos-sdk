@@ -161,7 +161,7 @@ func setupApp(t *testing.T, tempDir string) (*simapp.SimApp, context.Context, ge
 	assert.NilError(t, err)
 
 	db := dbm.NewMemDB()
-	app := simapp.NewSimApp(logger, db, true, simtestutil.NewAppOptionsWithFlagHome(tempDir))
+	app := simapp.NewSimApp(logger, db, true, simtestutil.NewAppOptionsWithFlagHomeAndChainID(tempDir, "SimApp"))
 
 	genesisState := simapp.GenesisStateWithSingleValidator(t, app)
 	stateBytes, err := json.MarshalIndent(genesisState, "", " ")

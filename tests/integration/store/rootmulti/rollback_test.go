@@ -21,7 +21,7 @@ func TestRollback(t *testing.T) {
 	options := simapp.SetupOptions{
 		Logger:  log.NewNopLogger(),
 		DB:      db,
-		AppOpts: simtestutil.NewAppOptionsWithFlagHome(t.TempDir()),
+		AppOpts: simtestutil.NewAppOptionsWithFlagHomeAndChainID(t.TempDir(), "SimApp"),
 	}
 	app := simapp.NewSimappWithCustomOptions(t, false, options)
 	ver0 := app.LastBlockHeight()
@@ -57,7 +57,7 @@ func TestRollback(t *testing.T) {
 	assert.Equal(t, target, app.LastBlockHeight())
 
 	// recreate app to have clean check state
-	app = simapp.NewSimApp(options.Logger, options.DB, true, simtestutil.NewAppOptionsWithFlagHome(t.TempDir()))
+	app = simapp.NewSimApp(options.Logger, options.DB, true, simtestutil.NewAppOptionsWithFlagHomeAndChainID(t.TempDir(), "SimApp"))
 	store = app.NewContext(true).KVStore(app.GetKey("bank"))
 	assert.DeepEqual(t, []byte("value5"), store.Get([]byte("key")))
 
