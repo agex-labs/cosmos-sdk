@@ -54,6 +54,7 @@ Use this checklist first, then read the linked sections for the exact code or wi
 - [ ] Update `x/epochs.NewAppModule` if your app includes `x/epochs`. See [x/epochs](#xepochs).
 - [ ] Put `x/bank` first in `SetOrderEndBlockers`. See [x/bank](#xbank).
 - [ ] Update your node service registration if your app exposes `NodeService`. See [NodeService](#nodeservice).
+- [ ] If using the `app` package, review execution config semantics. See [SDKApp Execution Configuration](#sdkapp-execution-configuration).
 - [ ] Migrate imports for removed `x/` Go modules. See [Removed Go Modules](#removed-go-modules).
 - [ ] Update required Cosmos SDK Go module dependencies. See [Module Version Updates](#module-version-updates).
 - [ ] Migrate to `contrib/` imports if you use `x/circuit`, `x/nft`, or `x/crisis`. See [Module Deprecations](#module-deprecations).
@@ -155,6 +156,34 @@ func (app *SimApp) RegisterNodeService(clientCtx client.Context, cfg config.Conf
 		return app.CommitMultiStore().EarliestVersion()
 	})
 }
+```
+
+#### SDKApp Execution Configuration
+
+If your application uses `app.DefaultSDKAppConfig` / `app.NewSDKApp`, execution settings are now explicit:
+
+- `BlockSTM` is nullable:
+  - `nil` means serial execution
+  - non-nil enables BlockSTM
+- `OptimisticExecutionEnabled` is a dedicated boolean
+- `BlockSTM` and `OptimisticExecutionEnabled` are mutually exclusive and fail validation if both are enabled
+
+Example:
+
+```go
+cfg := app.DefaultSDKAppConfig(appName, appOpts)
+
+// Serial (default)
+cfg.BlockSTM = nil
+
+// Or BlockSTM
+cfg.BlockSTM = &app.BlockSTMConfig{
+	Workers:  runtime.GOMAXPROCS(0),
+	Estimate: false,
+}
+
+// Or optimistic execution
+cfg.OptimisticExecutionEnabled = true
 ```
 
 ### Removed Go Modules
