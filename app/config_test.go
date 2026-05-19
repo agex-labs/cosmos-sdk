@@ -119,8 +119,10 @@ func TestDefaultSDKAppConfigWithoutChainIDPanicsWithoutGenesis(t *testing.T) {
 
 func TestSDKAppConfigValidateBlockSTMWorkers(t *testing.T) {
 	cfg := DefaultSDKAppConfig("app", testAppOptions(t))
-	cfg.ExecutionMode = ExecutionModeBlockSTM
-	cfg.BlockSTM.Workers = 0
+	cfg.BlockSTM = &BlockSTMConfig{
+		Workers:  0,
+		Estimate: false,
+	}
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected validation error for invalid blockstm workers")
