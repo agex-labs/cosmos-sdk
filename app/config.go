@@ -89,6 +89,8 @@ type SDKAppConfig struct {
 	ProcessProposalHandler     sdk.ProcessProposalHandler
 	ExtendVoteHandler          sdk.ExtendVoteHandler
 
+	OptimisticExecutionEnabled bool
+
 	// BlockSTM enables parallel execution when configured; nil means serial execution.
 	BlockSTM *BlockSTMConfig
 
@@ -147,7 +149,8 @@ func DefaultSDKAppConfig(
 		PrepareProposalHandler: nil,
 		ProcessProposalHandler: nil,
 
-		BlockSTM: nil,
+		OptimisticExecutionEnabled: false,
+		BlockSTM:                   nil,
 
 		Upgrades: nil,
 
@@ -168,6 +171,9 @@ func (appConfig SDKAppConfig) Validate() error {
 
 	if appConfig.BlockSTM != nil && appConfig.BlockSTM.Workers < 1 {
 		return fmt.Errorf("blockstm workers must be >= 1")
+	}
+	if appConfig.OptimisticExecutionEnabled && appConfig.BlockSTM != nil {
+		return fmt.Errorf("optimistic execution and blockstm cannot both be enabled")
 	}
 
 	return nil
