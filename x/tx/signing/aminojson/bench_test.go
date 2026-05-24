@@ -3,8 +3,8 @@ package aminojson_test
 import (
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/x/tx/signing/aminojson"
-	"github.com/cosmos/cosmos-sdk/x/tx/signing/aminojson/internal/testpb"
+	"cosmossdk.io/x/tx/signing/aminojson"
+	"cosmossdk.io/x/tx/signing/aminojson/internal/testpb"
 )
 
 var sink any
@@ -40,12 +40,11 @@ func BenchmarkAminoJSONDefaultSort(b *testing.B) {
 }
 
 func benchmarkAminoJSON(b *testing.B, addNaiveSort bool) {
-	b.Helper()
 	enc := aminojson.NewEncoder(aminojson.EncoderOptions{DoNotSortFields: addNaiveSort})
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		sink = runAminoJSON(b, enc, addNaiveSort)
 	}
 	if sink == nil {
@@ -55,7 +54,6 @@ func benchmarkAminoJSON(b *testing.B, addNaiveSort bool) {
 }
 
 func runAminoJSON(b *testing.B, enc aminojson.Encoder, addNaiveSort bool) []byte {
-	b.Helper()
 	bz, err := enc.Marshal(msg)
 	if err != nil {
 		b.Fatal(err)

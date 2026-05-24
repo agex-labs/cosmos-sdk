@@ -11,7 +11,6 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,19 +22,19 @@ import (
 	protoio "github.com/cosmos/gogoproto/io"
 	"github.com/cosmos/gogoproto/jsonpb"
 	"github.com/cosmos/gogoproto/proto"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 
 	errorsmod "cosmossdk.io/errors"
-	"cosmossdk.io/log/v2"
+	"cosmossdk.io/log"
+	pruningtypes "cosmossdk.io/store/pruning/types"
+	"cosmossdk.io/store/snapshots"
+	snapshottypes "cosmossdk.io/store/snapshots/types"
+	storetypes "cosmossdk.io/store/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	baseapptestutil "github.com/cosmos/cosmos-sdk/baseapp/testutil"
 	"github.com/cosmos/cosmos-sdk/baseapp/testutil/mock"
-	pruningtypes "github.com/cosmos/cosmos-sdk/store/v2/pruning/types"
-	"github.com/cosmos/cosmos-sdk/store/v2/snapshots"
-	snapshottypes "github.com/cosmos/cosmos-sdk/store/v2/snapshots/types"
-	storetypes "github.com/cosmos/cosmos-sdk/store/v2/types"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -43,18 +42,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/mempool"
 	"github.com/cosmos/cosmos-sdk/x/auth/signing"
 )
-
-type mockABCIListener struct {
-	ListenCommitFn func(context.Context, abci.ResponseCommit, []*storetypes.StoreKVPair) error
-}
-
-func (m mockABCIListener) ListenFinalizeBlock(_ context.Context, _ abci.RequestFinalizeBlock, _ abci.ResponseFinalizeBlock) error {
-	return nil
-}
-
-func (m *mockABCIListener) ListenCommit(ctx context.Context, commit abci.ResponseCommit, pairs []*storetypes.StoreKVPair) error {
-	return m.ListenCommitFn(ctx, commit, pairs)
-}
 
 func TestABCI_Info(t *testing.T) {
 	suite := NewBaseAppSuite(t)
@@ -376,82 +363,6 @@ func TestABCI_ExtendVote(t *testing.T) {
 	require.Equal(t, abci.ResponseVerifyVoteExtension_REJECT, vres.Status)
 }
 
-// TestABCI_ExtendVote_PanicRecovery tests that when ExtendVoteHandler panics,
-// the panic is recovered and the error contains the panic message.
-func TestABCI_ExtendVote_PanicRecovery(t *testing.T) {
-	name := t.Name()
-	db := dbm.NewMemDB()
-	app := baseapp.NewBaseApp(name, log.NewTestLogger(t), db, nil)
-
-	panicMsg := "test panic message for ExtendVote"
-	app.SetExtendVoteHandler(func(ctx sdk.Context, req *abci.RequestExtendVote) (*abci.ResponseExtendVote, error) {
-		panic(panicMsg)
-	})
-
-	app.SetVerifyVoteExtensionHandler(func(ctx sdk.Context, req *abci.RequestVerifyVoteExtension) (*abci.ResponseVerifyVoteExtension, error) {
-		return &abci.ResponseVerifyVoteExtension{Status: abci.ResponseVerifyVoteExtension_ACCEPT}, nil
-	})
-
-	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
-	_, err := app.InitChain(
-		&abci.RequestInitChain{
-			InitialHeight: 1,
-			ConsensusParams: &cmtproto.ConsensusParams{
-				Abci: &cmtproto.ABCIParams{
-					VoteExtensionsEnableHeight: 1,
-				},
-			},
-		},
-	)
-	require.NoError(t, err)
-
-	// Call ExtendVote which should panic and recover
-	_, err = app.ExtendVote(context.Background(), &abci.RequestExtendVote{Height: 1, Hash: []byte("thehash")})
-
-	// The error should contain the panic message
-	require.Error(t, err)
-	require.Contains(t, err.Error(), panicMsg)
-	require.Contains(t, err.Error(), "recovered application panic in ExtendVote")
-}
-
-// TestABCI_VerifyVoteExtension_PanicRecovery tests that when VerifyVoteExtensionHandler panics,
-// the panic is recovered and the error contains the panic message.
-func TestABCI_VerifyVoteExtension_PanicRecovery(t *testing.T) {
-	name := t.Name()
-	db := dbm.NewMemDB()
-	app := baseapp.NewBaseApp(name, log.NewTestLogger(t), db, nil)
-
-	panicMsg := "test panic message for VerifyVoteExtension"
-	app.SetExtendVoteHandler(func(ctx sdk.Context, req *abci.RequestExtendVote) (*abci.ResponseExtendVote, error) {
-		return &abci.ResponseExtendVote{VoteExtension: []byte("extension")}, nil
-	})
-
-	app.SetVerifyVoteExtensionHandler(func(ctx sdk.Context, req *abci.RequestVerifyVoteExtension) (*abci.ResponseVerifyVoteExtension, error) {
-		panic(panicMsg)
-	})
-
-	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
-	_, err := app.InitChain(
-		&abci.RequestInitChain{
-			InitialHeight: 1,
-			ConsensusParams: &cmtproto.ConsensusParams{
-				Abci: &cmtproto.ABCIParams{
-					VoteExtensionsEnableHeight: 1,
-				},
-			},
-		},
-	)
-	require.NoError(t, err)
-
-	// Call VerifyVoteExtension which should panic and recover
-	_, err = app.VerifyVoteExtension(&abci.RequestVerifyVoteExtension{Height: 1, Hash: []byte("thehash"), VoteExtension: []byte("extension")})
-
-	// The error should contain the panic message
-	require.Error(t, err)
-	require.Contains(t, err.Error(), panicMsg)
-	require.Contains(t, err.Error(), "recovered application panic in VerifyVoteExtension")
-}
-
 // TestABCI_OnlyVerifyVoteExtension makes sure we can call VerifyVoteExtension
 // without having called ExtendVote before.
 func TestABCI_OnlyVerifyVoteExtension(t *testing.T) {
@@ -712,10 +623,10 @@ func TestABCI_FinalizeBlock_DeliverTx(t *testing.T) {
 	nBlocks := 3
 	txPerHeight := 5
 
-	for blockN := range nBlocks {
+	for blockN := 0; blockN < nBlocks; blockN++ {
 
 		txs := [][]byte{}
-		for i := range txPerHeight {
+		for i := 0; i < txPerHeight; i++ {
 			counter := int64(blockN*txPerHeight + i)
 			tx := newTxCounter(t, suite.txConfig, counter, counter)
 
@@ -731,7 +642,7 @@ func TestABCI_FinalizeBlock_DeliverTx(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		for i := range txPerHeight {
+		for i := 0; i < txPerHeight; i++ {
 			counter := int64(blockN*txPerHeight + i)
 			require.True(t, res.TxResults[i].IsOK(), fmt.Sprintf("%v", res))
 
@@ -743,6 +654,13 @@ func TestABCI_FinalizeBlock_DeliverTx(t *testing.T) {
 
 		_, err = suite.baseApp.Commit()
 		require.NoError(t, err)
+	}
+}
+
+func wrapWithLockAndCacheContextDecorator(handler sdk.AnteHandler) sdk.AnteHandler {
+	lockingHandler := baseapp.NewLockAndCacheContextAnteDecorator()
+	return func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
+		return lockingHandler.AnteHandle(ctx, tx, simulate, handler)
 	}
 }
 
@@ -793,7 +711,7 @@ func TestABCI_FinalizeBlock_MultiMsg(t *testing.T) {
 	msgs = append(msgs, &baseapptestutil.MsgCounter2{Counter: 0, Signer: addr.String()})
 	msgs = append(msgs, &baseapptestutil.MsgCounter2{Counter: 1, Signer: addr.String()})
 
-	require.NoError(t, builder.SetMsgs(msgs...))
+	builder.SetMsgs(msgs...)
 	builder.SetMemo(tx.GetMemo())
 	setTxSignature(t, builder, 0)
 
@@ -824,10 +742,12 @@ func TestABCI_FinalizeBlock_MultiMsg(t *testing.T) {
 func TestABCI_Query_SimulateTx(t *testing.T) {
 	gasConsumed := uint64(5)
 	anteOpt := func(bapp *baseapp.BaseApp) {
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
-			newCtx = ctx.WithGasMeter(storetypes.NewGasMeter(gasConsumed))
-			return newCtx, err
-		})
+		bapp.SetAnteHandler(wrapWithLockAndCacheContextDecorator(
+			func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
+				newCtx = ctx.WithGasMeter(storetypes.NewGasMeter(gasConsumed))
+				return
+			}),
+		)
 	}
 	suite := NewBaseAppSuite(t, anteOpt)
 
@@ -839,7 +759,7 @@ func TestABCI_Query_SimulateTx(t *testing.T) {
 	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), CounterServerImplGasMeterOnly{gasConsumed})
 
 	nBlocks := 3
-	for blockN := range nBlocks {
+	for blockN := 0; blockN < nBlocks; blockN++ {
 		count := int64(blockN + 1)
 
 		tx := newTxCounter(t, suite.txConfig, count, count)
@@ -883,51 +803,13 @@ func TestABCI_Query_SimulateTx(t *testing.T) {
 	}
 }
 
-func TestABCI_AnteHandlerContextValuesReachMsgServer(t *testing.T) {
-	type sdkCtxKey struct{}
-	type goCtxKey struct{}
-
-	anteOpt := func(bapp *baseapp.BaseApp) {
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
-			ctx = ctx.WithValue(sdkCtxKey{}, "sdk-value")
-			ctx = ctx.WithContext(context.WithValue(ctx.Context(), goCtxKey{}, "go-value"))
-			return ctx, nil
-		})
-	}
-
-	executed := false
-	suite := NewBaseAppSuite(t, anteOpt)
-	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), mockCounterServer{
-		incrementCounterFn: func(ctx context.Context, _ *baseapptestutil.MsgCounter) (*baseapptestutil.MsgCreateCounterResponse, error) {
-			sdkCtx := sdk.UnwrapSDKContext(ctx)
-			executed = true
-			require.Equal(t, "sdk-value", sdkCtx.Value(sdkCtxKey{}))
-			require.Equal(t, "go-value", sdkCtx.Value(goCtxKey{}))
-			require.Equal(t, "sdk-value", ctx.Value(sdkCtxKey{}))
-			require.Equal(t, "go-value", ctx.Value(goCtxKey{}))
-			return &baseapptestutil.MsgCreateCounterResponse{}, nil
-		},
-	})
-
-	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
-		ConsensusParams: &cmtproto.ConsensusParams{},
-	})
-	require.NoError(t, err)
-
-	tx := newTxCounter(t, suite.txConfig, 0, 0)
-	txbz, err := suite.txConfig.TxEncoder()(tx)
-	require.NoError(t, err)
-	_, result, err := suite.baseApp.Simulate(txbz)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.True(t, executed)
-}
-
 func TestABCI_InvalidTransaction(t *testing.T) {
 	anteOpt := func(bapp *baseapp.BaseApp) {
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
-			return newCtx, err
-		})
+		bapp.SetAnteHandler(wrapWithLockAndCacheContextDecorator(
+			func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
+				return
+			}),
+		)
 	}
 
 	suite := NewBaseAppSuite(t, anteOpt)
@@ -1005,7 +887,7 @@ func TestABCI_InvalidTransaction(t *testing.T) {
 	{
 		txBuilder := suite.txConfig.NewTxBuilder()
 		_, _, addr := testdata.KeyTestPubAddr()
-		require.NoError(t, txBuilder.SetMsgs(&baseapptestutil.MsgCounter2{Signer: addr.String()}))
+		txBuilder.SetMsgs(&baseapptestutil.MsgCounter2{Signer: addr.String()})
 		setTxSignature(t, txBuilder, 0)
 		unknownRouteTx := txBuilder.GetTx()
 
@@ -1018,10 +900,10 @@ func TestABCI_InvalidTransaction(t *testing.T) {
 		require.EqualValues(t, sdkerrors.ErrUnknownRequest.ABCICode(), code, err)
 
 		txBuilder = suite.txConfig.NewTxBuilder()
-		require.NoError(t, txBuilder.SetMsgs(
+		txBuilder.SetMsgs(
 			&baseapptestutil.MsgCounter{Signer: addr.String()},
 			&baseapptestutil.MsgCounter2{Signer: addr.String()},
-		))
+		)
 		setTxSignature(t, txBuilder, 0)
 		unknownRouteTx = txBuilder.GetTx()
 
@@ -1037,13 +919,13 @@ func TestABCI_InvalidTransaction(t *testing.T) {
 	// Transaction with an unregistered message
 	{
 		txBuilder := suite.txConfig.NewTxBuilder()
-		require.NoError(t, txBuilder.SetMsgs(&testdata.MsgCreateDog{}))
+		txBuilder.SetMsgs(&testdata.MsgCreateDog{})
 		tx := txBuilder.GetTx()
 
 		_, _, err := suite.baseApp.SimDeliver(suite.txConfig.TxEncoder(), tx)
 		require.Error(t, err)
 		space, code, _ := errorsmod.ABCIInfo(err, false)
-		require.EqualValues(t, sdkerrors.ErrUnknownRequest.ABCICode(), code)
+		require.EqualValues(t, sdkerrors.ErrTxDecode.ABCICode(), code)
 		require.EqualValues(t, sdkerrors.ErrTxDecode.Codespace(), space)
 	}
 }
@@ -1051,29 +933,31 @@ func TestABCI_InvalidTransaction(t *testing.T) {
 func TestABCI_TxGasLimits(t *testing.T) {
 	gasGranted := uint64(10)
 	anteOpt := func(bapp *baseapp.BaseApp) {
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
-			newCtx = ctx.WithGasMeter(storetypes.NewGasMeter(gasGranted))
+		bapp.SetAnteHandler(wrapWithLockAndCacheContextDecorator(
+			func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
+				newCtx = ctx.WithGasMeter(storetypes.NewGasMeter(gasGranted))
 
-			// AnteHandlers must have their own defer/recover in order for the BaseApp
-			// to know how much gas was used! This is because the GasMeter is created in
-			// the AnteHandler, but if it panics the context won't be set properly in
-			// runTx's recover call.
-			defer func() {
-				if r := recover(); r != nil {
-					switch rType := r.(type) {
-					case storetypes.ErrorOutOfGas:
-						err = errorsmod.Wrapf(sdkerrors.ErrOutOfGas, "out of gas in location: %v", rType.Descriptor)
-					default:
-						panic(r)
+				// AnteHandlers must have their own defer/recover in order for the BaseApp
+				// to know how much gas was used! This is because the GasMeter is created in
+				// the AnteHandler, but if it panics the context won't be set properly in
+				// runTx's recover call.
+				defer func() {
+					if r := recover(); r != nil {
+						switch rType := r.(type) {
+						case storetypes.ErrorOutOfGas:
+							err = errorsmod.Wrapf(sdkerrors.ErrOutOfGas, "out of gas in location: %v", rType.Descriptor)
+						default:
+							panic(r)
+						}
 					}
-				}
-			}()
+				}()
 
-			count, _ := parseTxMemo(t, tx)
-			newCtx.GasMeter().ConsumeGas(uint64(count), "counter-ante")
+				count, _ := parseTxMemo(t, tx)
+				newCtx.GasMeter().ConsumeGas(uint64(count), "counter-ante")
 
-			return newCtx, nil
-		})
+				return newCtx, nil
+			}),
+		)
 	}
 
 	suite := NewBaseAppSuite(t, anteOpt)
@@ -1147,26 +1031,27 @@ func TestABCI_TxGasLimits(t *testing.T) {
 func TestABCI_MaxBlockGasLimits(t *testing.T) {
 	gasGranted := uint64(10)
 	anteOpt := func(bapp *baseapp.BaseApp) {
-		baseapp.EnableBlockGasMeter()(bapp)
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
-			newCtx = ctx.WithGasMeter(storetypes.NewGasMeter(gasGranted))
+		bapp.SetAnteHandler(wrapWithLockAndCacheContextDecorator(
+			func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
+				newCtx = ctx.WithGasMeter(storetypes.NewGasMeter(gasGranted))
 
-			defer func() {
-				if r := recover(); r != nil {
-					switch rType := r.(type) {
-					case storetypes.ErrorOutOfGas:
-						err = errorsmod.Wrapf(sdkerrors.ErrOutOfGas, "out of gas in location: %v", rType.Descriptor)
-					default:
-						panic(r)
+				defer func() {
+					if r := recover(); r != nil {
+						switch rType := r.(type) {
+						case storetypes.ErrorOutOfGas:
+							err = errorsmod.Wrapf(sdkerrors.ErrOutOfGas, "out of gas in location: %v", rType.Descriptor)
+						default:
+							panic(r)
+						}
 					}
-				}
-			}()
+				}()
 
-			count, _ := parseTxMemo(t, tx)
-			newCtx.GasMeter().ConsumeGas(uint64(count), "counter-ante")
+				count, _ := parseTxMemo(t, tx)
+				newCtx.GasMeter().ConsumeGas(uint64(count), "counter-ante")
 
-			return newCtx, err
-		})
+				return
+			}),
+		)
 	}
 
 	suite := NewBaseAppSuite(t, anteOpt)
@@ -1211,7 +1096,7 @@ func TestABCI_MaxBlockGasLimits(t *testing.T) {
 		require.NoError(t, err)
 
 		// execute the transaction multiple times
-		for j := range tc.numDelivers {
+		for j := 0; j < tc.numDelivers; j++ {
 
 			_, result, err := suite.baseApp.SimDeliver(suite.txConfig.TxEncoder(), tx)
 
@@ -1245,29 +1130,31 @@ func TestABCI_MaxBlockGasLimits(t *testing.T) {
 func TestABCI_GasConsumptionBadTx(t *testing.T) {
 	gasWanted := uint64(5)
 	anteOpt := func(bapp *baseapp.BaseApp) {
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
-			newCtx = ctx.WithGasMeter(storetypes.NewGasMeter(gasWanted))
+		bapp.SetAnteHandler(wrapWithLockAndCacheContextDecorator(
+			func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
+				newCtx = ctx.WithGasMeter(storetypes.NewGasMeter(gasWanted))
 
-			defer func() {
-				if r := recover(); r != nil {
-					switch rType := r.(type) {
-					case storetypes.ErrorOutOfGas:
-						log := fmt.Sprintf("out of gas in location: %v", rType.Descriptor)
-						err = errorsmod.Wrap(sdkerrors.ErrOutOfGas, log)
-					default:
-						panic(r)
+				defer func() {
+					if r := recover(); r != nil {
+						switch rType := r.(type) {
+						case storetypes.ErrorOutOfGas:
+							log := fmt.Sprintf("out of gas in location: %v", rType.Descriptor)
+							err = errorsmod.Wrap(sdkerrors.ErrOutOfGas, log)
+						default:
+							panic(r)
+						}
 					}
+				}()
+
+				counter, failOnAnte := parseTxMemo(t, tx)
+				newCtx.GasMeter().ConsumeGas(uint64(counter), "counter-ante")
+				if failOnAnte {
+					return newCtx, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "ante handler failure")
 				}
-			}()
 
-			counter, failOnAnte := parseTxMemo(t, tx)
-			newCtx.GasMeter().ConsumeGas(uint64(counter), "counter-ante")
-			if failOnAnte {
-				return newCtx, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "ante handler failure")
-			}
-
-			return newCtx, err
-		})
+				return
+			}),
+		)
 	}
 
 	suite := NewBaseAppSuite(t, anteOpt)
@@ -1302,11 +1189,13 @@ func TestABCI_GasConsumptionBadTx(t *testing.T) {
 func TestABCI_Query(t *testing.T) {
 	key, value := []byte("hello"), []byte("goodbye")
 	anteOpt := func(bapp *baseapp.BaseApp) {
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
-			store := ctx.KVStore(capKey1)
-			store.Set(key, value)
-			return newCtx, err
-		})
+		bapp.SetAnteHandler(wrapWithLockAndCacheContextDecorator(
+			func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
+				store := ctx.KVStore(capKey1)
+				store.Set(key, value)
+				return
+			}),
+		)
 	}
 
 	suite := NewBaseAppSuite(t, anteOpt)
@@ -1440,18 +1329,6 @@ func TestABCI_GetBlockRetentionHeight(t *testing.T) {
 			commitHeight: 10000,
 			expected:     0,
 		},
-		"no pruning due to min retain blocks equal to commit height": {
-			bapp:         baseapp.NewBaseApp(name, logger, db, nil, baseapp.SetMinRetainBlocks(499000)),
-			maxAgeBlocks: 362880,
-			commitHeight: 499000,
-			expected:     0,
-		},
-		"no pruning due to min retain blocks greater than commit height": {
-			bapp:         baseapp.NewBaseApp(name, logger, db, nil, baseapp.SetMinRetainBlocks(499001)),
-			maxAgeBlocks: 362880,
-			commitHeight: 499000,
-			expected:     0,
-		},
 		"disable pruning": {
 			bapp: baseapp.NewBaseApp(
 				name, logger, db, nil,
@@ -1466,6 +1343,7 @@ func TestABCI_GetBlockRetentionHeight(t *testing.T) {
 	}
 
 	for name, tc := range testCases {
+		tc := tc
 
 		tc.bapp.SetParamStore(&paramStore{db: dbm.NewMemDB()})
 		_, err = tc.bapp.InitChain(&abci.RequestInitChain{
@@ -1532,7 +1410,7 @@ func TestPrecommiterCalledWithDeliverState(t *testing.T) {
 
 func TestABCI_Proposal_HappyPath(t *testing.T) {
 	anteKey := []byte("ante-key")
-	pool := mempool.NewSenderNonceMempool(mempool.SenderNonceMaxTxOpt(5000))
+	pool := mempool.NewSenderNonceMempool()
 	anteOpt := func(bapp *baseapp.BaseApp) {
 		bapp.SetAnteHandler(anteHandlerTxTest(t, capKey1, anteKey))
 	}
@@ -1673,11 +1551,10 @@ func TestABCI_Proposals_WithVE(t *testing.T) {
 
 	suite := NewBaseAppSuite(t, setInitChainerOpt, prepareOpt)
 
-	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
+	suite.baseApp.InitChain(&abci.RequestInitChain{
 		InitialHeight:   1,
 		ConsensusParams: &cmtproto.ConsensusParams{},
 	})
-	require.NoError(t, err)
 
 	reqPrepareProposal := abci.RequestPrepareProposal{
 		MaxTxBytes: 100000,
@@ -1711,7 +1588,7 @@ func TestABCI_Proposals_WithVE(t *testing.T) {
 
 func TestABCI_PrepareProposal_ReachedMaxBytes(t *testing.T) {
 	anteKey := []byte("ante-key")
-	pool := mempool.NewSenderNonceMempool(mempool.SenderNonceMaxTxOpt(5000))
+	pool := mempool.NewSenderNonceMempool()
 	anteOpt := func(bapp *baseapp.BaseApp) {
 		bapp.SetAnteHandler(anteHandlerTxTest(t, capKey1, anteKey))
 	}
@@ -1724,7 +1601,7 @@ func TestABCI_PrepareProposal_ReachedMaxBytes(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	for i := range 100 {
+	for i := 0; i < 100; i++ {
 		tx2 := newTxCounter(t, suite.txConfig, int64(i), int64(i))
 		err := pool.Insert(sdk.Context{}, tx2)
 		require.NoError(t, err)
@@ -1741,7 +1618,7 @@ func TestABCI_PrepareProposal_ReachedMaxBytes(t *testing.T) {
 
 func TestABCI_PrepareProposal_BadEncoding(t *testing.T) {
 	anteKey := []byte("ante-key")
-	pool := mempool.NewSenderNonceMempool(mempool.SenderNonceMaxTxOpt(5000))
+	pool := mempool.NewSenderNonceMempool()
 	anteOpt := func(bapp *baseapp.BaseApp) {
 		bapp.SetAnteHandler(anteHandlerTxTest(t, capKey1, anteKey))
 	}
@@ -1768,7 +1645,7 @@ func TestABCI_PrepareProposal_BadEncoding(t *testing.T) {
 }
 
 func TestABCI_PrepareProposal_OverGasUnderBytes(t *testing.T) {
-	pool := mempool.NewSenderNonceMempool(mempool.SenderNonceMaxTxOpt(5000))
+	pool := mempool.NewSenderNonceMempool()
 	suite := NewBaseAppSuite(t, baseapp.SetMempool(pool))
 	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), NoopCounterServerImpl{})
 
@@ -1809,17 +1686,16 @@ func TestABCI_PrepareProposal_OverGasUnderBytes(t *testing.T) {
 }
 
 func TestABCI_PrepareProposal_MaxGas(t *testing.T) {
-	pool := mempool.NewSenderNonceMempool(mempool.SenderNonceMaxTxOpt(5000))
+	pool := mempool.NewSenderNonceMempool()
 	suite := NewBaseAppSuite(t, baseapp.SetMempool(pool))
 	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), NoopCounterServerImpl{})
 
 	// set max block gas limit to 100
-	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
+	suite.baseApp.InitChain(&abci.RequestInitChain{
 		ConsensusParams: &cmtproto.ConsensusParams{
 			Block: &cmtproto.BlockParams{MaxGas: 100},
 		},
 	})
-	require.NoError(t, err)
 
 	// insert 100 txs, each with a gas limit of 10
 	_, _, addr := testdata.KeyTestPubAddr()
@@ -1828,7 +1704,7 @@ func TestABCI_PrepareProposal_MaxGas(t *testing.T) {
 		msgs := []sdk.Msg{msg}
 
 		builder := suite.txConfig.NewTxBuilder()
-		require.NoError(t, builder.SetMsgs(msgs...))
+		builder.SetMsgs(msgs...)
 		builder.SetMemo("counter=" + strconv.FormatInt(i, 10) + "&failOnAnte=false")
 		builder.SetGasLimit(10)
 		setTxSignature(t, builder, uint64(i))
@@ -1848,7 +1724,7 @@ func TestABCI_PrepareProposal_MaxGas(t *testing.T) {
 
 func TestABCI_PrepareProposal_Failures(t *testing.T) {
 	anteKey := []byte("ante-key")
-	pool := mempool.NewSenderNonceMempool(mempool.SenderNonceMaxTxOpt(5000))
+	pool := mempool.NewSenderNonceMempool()
 	anteOpt := func(bapp *baseapp.BaseApp) {
 		bapp.SetAnteHandler(anteHandlerTxTest(t, capKey1, anteKey))
 	}
@@ -2100,7 +1976,7 @@ func TestABCI_Proposal_Reset_State_Between_Calls(t *testing.T) {
 
 	// Let's pretend something happened and PrepareProposal gets called many
 	// times, this must be safe to do.
-	for range 5 {
+	for i := 0; i < 5; i++ {
 		resPrepareProposal, err := suite.baseApp.PrepareProposal(&reqPrepareProposal)
 		require.NoError(t, err)
 		require.Equal(t, 0, len(resPrepareProposal.Txs))
@@ -2114,7 +1990,7 @@ func TestABCI_Proposal_Reset_State_Between_Calls(t *testing.T) {
 
 	// Let's pretend something happened and ProcessProposal gets called many
 	// times, this must be safe to do.
-	for range 5 {
+	for i := 0; i < 5; i++ {
 		resProcessProposal, err := suite.baseApp.ProcessProposal(&reqProcessProposal)
 		require.NoError(t, err)
 		require.Equal(t, abci.ResponseProcessProposal_ACCEPT, resProcessProposal.Status)
@@ -2131,25 +2007,22 @@ func TestABCI_HaltChain(t *testing.T) {
 		expHalt     bool
 	}{
 		{"default", 0, 0, 10, 0, false},
-		{"halt-height-edge", 11, 0, 10, 0, false},
-		{"halt-height-equal", 10, 0, 10, 0, true},
-		{"halt-height", 10, 0, 10, 0, true},
-		{"halt-time-edge", 0, 11, 1, 10, false},
-		{"halt-time-equal", 0, 10, 1, 10, true},
+		{"halt-height-edge", 10, 0, 10, 0, false},
+		{"halt-height", 10, 0, 11, 0, true},
+		{"halt-time-edge", 0, 10, 1, 10, false},
 		{"halt-time", 0, 10, 1, 11, true},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			suite := NewBaseAppSuite(t, baseapp.SetHaltHeight(tc.haltHeight), baseapp.SetHaltTime(tc.haltTime))
-			_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
+			suite.baseApp.InitChain(&abci.RequestInitChain{
 				ConsensusParams: &cmtproto.ConsensusParams{},
 				InitialHeight:   tc.blockHeight,
 			})
-			require.NoError(t, err)
 
 			app := suite.baseApp
-			_, err = app.FinalizeBlock(&abci.RequestFinalizeBlock{
+			_, err := app.FinalizeBlock(&abci.RequestFinalizeBlock{
 				Height: tc.blockHeight,
 				Time:   time.Unix(tc.blockTime, 0),
 			})
@@ -2175,24 +2048,22 @@ func TestBaseApp_PreBlocker(t *testing.T) {
 	wasHookCalled := false
 	app.SetPreBlocker(func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
 		wasHookCalled = true
-
-		ctx.EventManager().EmitEvent(sdk.NewEvent("preblockertest", sdk.NewAttribute("height", fmt.Sprintf("%d", req.Height))))
-		return &sdk.ResponsePreBlock{ConsensusParamsChanged: false}, nil
+		return &sdk.ResponsePreBlock{
+			ConsensusParamsChanged: true,
+		}, nil
 	})
 	app.Seal()
 
-	res, err := app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1})
+	_, err = app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: 1})
 	require.NoError(t, err)
 	require.Equal(t, true, wasHookCalled)
-	require.Len(t, res.Events, 1)
-	require.Equal(t, "preblockertest", res.Events[0].Type)
 
 	// Now try erroring
 	app = baseapp.NewBaseApp(name, logger, db, nil)
 	_, err = app.InitChain(&abci.RequestInitChain{})
 	require.NoError(t, err)
 
-	app.SetPreBlocker(func(_ sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
+	app.SetPreBlocker(func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
 		return nil, errors.New("some error")
 	})
 	app.Seal()
@@ -2210,7 +2081,7 @@ func TestBaseApp_VoteExtensions(t *testing.T) {
 	numVals := 12
 	privKeys := make([]secp256k1.PrivKey, numVals)
 	vals := make([]sdk.ConsAddress, numVals)
-	for i := range numVals {
+	for i := 0; i < numVals; i++ {
 		privKey := secp256k1.GenPrivKey()
 		privKeys[i] = privKey
 
@@ -2320,7 +2191,7 @@ func TestBaseApp_VoteExtensions(t *testing.T) {
 
 	allVEs := [][]byte{}
 	// simulate getting 10 vote extensions from 10 validators
-	for range 10 {
+	for i := 0; i < 10; i++ {
 		ve, err := suite.baseApp.ExtendVote(context.TODO(), &abci.RequestExtendVote{Height: 1})
 		require.NoError(t, err)
 		allVEs = append(allVEs, ve.VoteExtension)
@@ -2505,7 +2376,7 @@ func TestOptimisticExecution(t *testing.T) {
 	require.NoError(t, err)
 
 	// run 50 blocks
-	for range 50 {
+	for i := 0; i < 50; i++ {
 		tx := newTxCounter(t, suite.txConfig, 0, 1)
 		txBytes, err := suite.txConfig.TxEncoder()(tx)
 		require.NoError(t, err)
@@ -2535,169 +2406,4 @@ func TestOptimisticExecution(t *testing.T) {
 	}
 
 	require.Equal(t, int64(50), suite.baseApp.LastBlockHeight())
-}
-
-func TestABCI_Proposal_FailReCheckTx(t *testing.T) {
-	pool := mempool.NewPriorityMempool[int64](mempool.PriorityNonceMempoolConfig[int64]{
-		TxPriority:      mempool.NewDefaultTxPriority(),
-		MaxTx:           0,
-		SignerExtractor: mempool.NewDefaultSignerExtractionAdapter(),
-	})
-
-	anteOpt := func(bapp *baseapp.BaseApp) {
-		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
-			// always fail on recheck, just to test the recheck logic
-			if ctx.IsReCheckTx() {
-				return ctx, errors.New("recheck failed in ante handler")
-			}
-
-			return ctx, nil
-		})
-	}
-
-	suite := NewBaseAppSuite(t, anteOpt, baseapp.SetMempool(pool))
-	baseapptestutil.RegisterKeyValueServer(suite.baseApp.MsgServiceRouter(), MsgKeyValueImpl{})
-	baseapptestutil.RegisterCounterServer(suite.baseApp.MsgServiceRouter(), NoopCounterServerImpl{})
-
-	_, err := suite.baseApp.InitChain(&abci.RequestInitChain{
-		ConsensusParams: &cmtproto.ConsensusParams{},
-	})
-	require.NoError(t, err)
-
-	tx := newTxCounter(t, suite.txConfig, 0, 1)
-	txBytes, err := suite.txConfig.TxEncoder()(tx)
-	require.NoError(t, err)
-
-	reqCheckTx := abci.RequestCheckTx{
-		Tx:   txBytes,
-		Type: abci.CheckTxType_New,
-	}
-	_, err = suite.baseApp.CheckTx(&reqCheckTx)
-	require.NoError(t, err)
-
-	tx2 := newTxCounter(t, suite.txConfig, 1, 1)
-
-	tx2Bytes, err := suite.txConfig.TxEncoder()(tx2)
-	require.NoError(t, err)
-
-	err = pool.Insert(sdk.Context{}, tx2)
-	require.NoError(t, err)
-
-	require.Equal(t, 2, pool.CountTx())
-
-	// call prepareProposal before calling recheck tx, just as a sanity check
-	reqPrepareProposal := abci.RequestPrepareProposal{
-		MaxTxBytes: 1000,
-		Height:     1,
-	}
-	resPrepareProposal, err := suite.baseApp.PrepareProposal(&reqPrepareProposal)
-	require.NoError(t, err)
-	require.Equal(t, 2, len(resPrepareProposal.Txs))
-
-	// call recheck on the first tx, it MUST return an error
-	reqReCheckTx := abci.RequestCheckTx{
-		Tx:   txBytes,
-		Type: abci.CheckTxType_Recheck,
-	}
-	resp, err := suite.baseApp.CheckTx(&reqReCheckTx)
-	require.NoError(t, err)
-	require.True(t, resp.IsErr())
-	require.Equal(t, "recheck failed in ante handler", resp.Log)
-
-	// call prepareProposal again, should return only the second tx
-	resPrepareProposal, err = suite.baseApp.PrepareProposal(&reqPrepareProposal)
-	require.NoError(t, err)
-	require.Equal(t, 1, len(resPrepareProposal.Txs))
-	require.Equal(t, tx2Bytes, resPrepareProposal.Txs[0])
-
-	// check the mempool, it should have only the second tx
-	require.Equal(t, 1, pool.CountTx())
-
-	reqProposalTxBytes := [][]byte{
-		tx2Bytes,
-	}
-	reqProcessProposal := abci.RequestProcessProposal{
-		Txs:    reqProposalTxBytes,
-		Height: reqPrepareProposal.Height,
-	}
-
-	resProcessProposal, err := suite.baseApp.ProcessProposal(&reqProcessProposal)
-	require.NoError(t, err)
-	require.Equal(t, abci.ResponseProcessProposal_ACCEPT, resProcessProposal.Status)
-
-	// the same txs as in PrepareProposal
-	res, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{
-		Height: suite.baseApp.LastBlockHeight() + 1,
-		Txs:    reqProposalTxBytes,
-	})
-	require.NoError(t, err)
-
-	require.Equal(t, 0, pool.CountTx())
-
-	require.NotEmpty(t, res.TxResults[0].Events)
-	require.True(t, res.TxResults[0].IsOK(), fmt.Sprintf("%v", res))
-}
-
-func TestFinalizeBlockDeferResponseHandle(t *testing.T) {
-	suite := NewBaseAppSuite(t, baseapp.SetHaltHeight(1), func(ba *baseapp.BaseApp) {
-		ba.SetStreamingManager(storetypes.StreamingManager{
-			ABCIListeners: []storetypes.ABCIListener{
-				&mockABCIListener{},
-			},
-		})
-	})
-
-	res, err := suite.baseApp.FinalizeBlock(&abci.RequestFinalizeBlock{
-		Height: 2,
-	})
-	require.Empty(t, res)
-	require.NotEmpty(t, err)
-}
-
-func TestABCI_Race_Commit_Query(t *testing.T) {
-	suite := NewBaseAppSuite(t, baseapp.SetChainID("test-chain-id"))
-	app := suite.baseApp
-
-	_, err := app.InitChain(&abci.RequestInitChain{
-		ChainId:         "test-chain-id",
-		ConsensusParams: &cmtproto.ConsensusParams{Block: &cmtproto.BlockParams{MaxGas: 5000000}},
-		InitialHeight:   1,
-	})
-	require.NoError(t, err)
-	_, err = app.Commit()
-	require.NoError(t, err)
-
-	counter := atomic.Uint64{}
-	counter.Store(0)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	queryCreator := func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				_, err := app.CreateQueryContextWithCheckHeader(0, false, false)
-				require.NoError(t, err)
-
-				counter.Add(1)
-			}
-		}
-	}
-
-	for i := 0; i < 100; i++ {
-		go queryCreator()
-	}
-
-	for i := 0; i < 1000; i++ {
-		_, err = app.FinalizeBlock(&abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
-		require.NoError(t, err)
-
-		_, err = app.Commit()
-		require.NoError(t, err)
-	}
-
-	cancel()
-
-	require.Equal(t, int64(1001), app.GetContextForCheckTx(nil).BlockHeight())
 }

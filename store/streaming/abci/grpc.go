@@ -7,7 +7,7 @@ import (
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/hashicorp/go-plugin"
 
-	storetypes "github.com/cosmos/cosmos-sdk/store/v2/types"
+	storetypes "cosmossdk.io/store/types"
 )
 
 var _ storetypes.ABCIListener = (*GRPCClient)(nil)
@@ -17,7 +17,7 @@ type GRPCClient struct {
 	client ABCIListenerServiceClient
 }
 
-// ListenFinalizeBlock listens to end block request and responses.
+// ListenEndBlock listens to end block request and responses.
 // In addition, it retrieves a types.Context from a context.Context instance.
 // It panics if a types.Context was not properly attached.
 // When the node is configured to stop on listening errors,

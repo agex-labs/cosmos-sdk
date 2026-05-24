@@ -35,7 +35,11 @@ func Paginate(numObjs, page, limit, defLimit int) (start, end int) {
 	}
 
 	start = (page - 1) * limit
-	end = min(limit+start, numObjs)
+	end = limit + start
+
+	if end >= numObjs {
+		end = numObjs
+	}
 
 	if start >= numObjs {
 		// page is out of bounds

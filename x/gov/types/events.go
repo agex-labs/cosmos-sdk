@@ -13,7 +13,6 @@ const (
 	AttributeKeyVoter                       = "voter"
 	AttributeKeyOption                      = "option"
 	AttributeKeyProposalID                  = "proposal_id"
-	AttributeKeyDepositor                   = "depositor"
 	AttributeKeyProposalMessages            = "proposal_messages" // Msg type_urls in the proposal
 	AttributeKeyVotingPeriodStart           = "voting_period_start"
 	AttributeKeyProposalLog                 = "proposal_log"                // log of proposal execution
@@ -23,7 +22,6 @@ const (
 	AttributeValueExpeditedProposalRejected = "expedited_proposal_rejected" // didn't meet expedited vote quorum
 	AttributeValueProposalFailed            = "proposal_failed"             // error on proposal handler
 	AttributeValueProposalCanceled          = "proposal_canceled"           // error on proposal handler
-	AttributeKeyProposalProposer            = "proposal_proposer"           // account address of the proposer
 
 	AttributeKeyProposalType   = "proposal_type"
 	AttributeSignalTitle       = "signal_title"

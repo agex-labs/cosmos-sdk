@@ -15,9 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"cosmossdk.io/log/v2"
-
-	storetypes "github.com/cosmos/cosmos-sdk/store/v2/types"
+	"cosmossdk.io/log"
+	storetypes "cosmossdk.io/store/types"
 )
 
 type PluginTestSuite struct {
@@ -46,7 +45,8 @@ func (s *PluginTestSuite) SetupTest() {
 	s.workDir = path
 
 	pluginVersion := "abci"
-	pluginPath := fmt.Sprintf("%s/abci/examples/file/file", s.workDir)
+	// to write data to files, replace stdout/stdout => file/file
+	pluginPath := fmt.Sprintf("%s/abci/examples/stdout/stdout", s.workDir)
 	if err := os.Setenv(GetPluginEnvKey(pluginVersion), pluginPath); err != nil {
 		s.T().Fail()
 	}

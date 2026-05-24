@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"encoding/json"
+	"io"
 
 	dbm "github.com/cosmos/cosmos-db"
 
@@ -23,23 +24,14 @@ func (a *AppBuilder) DefaultGenesis() map[string]json.RawMessage {
 }
 
 // Build builds an *App instance.
-func (a *AppBuilder) Build(db dbm.DB, baseAppOptions ...func(*baseapp.BaseApp)) *App {
+func (a *AppBuilder) Build(db dbm.DB, traceStore io.Writer, baseAppOptions ...func(*baseapp.BaseApp)) *App {
 	for _, option := range a.app.baseAppOptions {
 		baseAppOptions = append(baseAppOptions, option)
 	}
 
-	// set routers first in case they get modified by other options
-	baseAppOptions = append(
-		[]func(*baseapp.BaseApp){
-			func(bApp *baseapp.BaseApp) {
-				bApp.SetMsgServiceRouter(a.app.msgServiceRouter)
-				bApp.SetGRPCQueryRouter(a.app.grpcQueryRouter)
-			},
-		},
-		baseAppOptions...,
-	)
-
 	bApp := baseapp.NewBaseApp(a.app.config.AppName, a.app.logger, db, nil, baseAppOptions...)
+	bApp.SetMsgServiceRouter(a.app.msgServiceRouter)
+	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
 	bApp.SetInterfaceRegistry(a.app.interfaceRegistry)
 	bApp.MountStores(a.app.storeKeys...)

@@ -5,18 +5,17 @@ package abci
 
 import (
 	context "context"
+	types1 "cosmossdk.io/store/types"
 	fmt "fmt"
-	io "io"
-	math "math"
-	math_bits "math/bits"
-
 	types "github.com/cometbft/cometbft/abci/types"
-	types1 "github.com/cosmos/cosmos-sdk/store/v2/types"
 	grpc1 "github.com/cosmos/gogoproto/grpc"
 	proto "github.com/cosmos/gogoproto/proto"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	io "io"
+	math "math"
+	math_bits "math/bits"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -363,7 +362,6 @@ func _ABCIListenerService_ListenCommit_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
-var ABCIListenerService_serviceDesc = _ABCIListenerService_serviceDesc
 var _ABCIListenerService_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "cosmos.store.streaming.abci.ABCIListenerService",
 	HandlerType: (*ABCIListenerServiceServer)(nil),

@@ -11,26 +11,34 @@ import (
 
 // Default period for deposits & voting
 const (
-	DefaultPeriod                         time.Duration = time.Hour * 24 * 2 // 2 days
+	DefaultPeriod time.Duration = time.Hour * 24 * 2 // 2 days
+	// (New default value for v0.50 migration) 24 hours voting period for expedited proposals.
 	DefaultExpeditedPeriod                time.Duration = time.Hour * 24 * 1 // 1 day
 	DefaultMinExpeditedDepositTokensRatio               = 5
 )
 
 // Default governance params
 var (
-	DefaultMinDepositTokens          = sdkmath.NewInt(10000000)
+	DefaultMinDepositTokens = sdkmath.NewInt(10000000)
+	// During v0.50 migration, this default value is overwritten with existing value of `MinDeposit`.
 	DefaultMinExpeditedDepositTokens = DefaultMinDepositTokens.Mul(sdkmath.NewInt(DefaultMinExpeditedDepositTokensRatio))
 	DefaultQuorum                    = sdkmath.LegacyNewDecWithPrec(334, 3)
 	DefaultThreshold                 = sdkmath.LegacyNewDecWithPrec(5, 1)
-	DefaultExpeditedThreshold        = sdkmath.LegacyNewDecWithPrec(667, 3)
-	DefaultVetoThreshold             = sdkmath.LegacyNewDecWithPrec(334, 3)
-	DefaultMinInitialDepositRatio    = sdkmath.LegacyZeroDec()
-	DefaultProposalCancelRatio       = sdkmath.LegacyMustNewDecFromStr("0.5")
+	// (New default value for v0.50 migration) 75% of Yes votes required for an expedited proposal to pass.
+	DefaultExpeditedThreshold     = sdkmath.LegacyNewDecWithPrec(75, 2)
+	DefaultVetoThreshold          = sdkmath.LegacyNewDecWithPrec(334, 3)
+	DefaultMinInitialDepositRatio = sdkmath.LegacyZeroDec()
+	// (New default value for v0.50 migration) 100% of deposit will not be returned to the depositors,
+	// if the proposal is canceled. Also, `MsgCancelProposal` is disabled in application.
+	DefaultProposalCancelRatio = sdkmath.LegacyMustNewDecFromStr("1.0")
+	// (New default value for v0.50 migration) 100% of deposit is burned if the proposal is canceled.
+	// Also, `MsgCancelProposal` is disabled in application.
 	DefaultProposalCancelDestAddress = ""
 	DefaultBurnProposalPrevote       = false // set to false to replicate behavior of when this change was made (0.47)
 	DefaultBurnVoteQuorom            = false // set to false to  replicate behavior of when this change was made (0.47)
 	DefaultBurnVoteVeto              = true  // set to true to replicate behavior of when this change was made (0.47)
-	DefaultMinDepositRatio           = sdkmath.LegacyMustNewDecFromStr("0.01")
+	// (New default value for v0.50 migration) 1% of `min_deposit` is required to make a deposit.
+	DefaultMinDepositRatio = sdkmath.LegacyMustNewDecFromStr("0.01")
 )
 
 // Deprecated: NewDepositParams creates a new DepositParams object
@@ -174,7 +182,7 @@ func (p Params) ValidateBasic() error {
 	}
 
 	if p.VotingPeriod == nil {
-		return fmt.Errorf("voting period must not be nil")
+		return fmt.Errorf("voting period must not be nil: %d", p.VotingPeriod)
 	}
 	if p.VotingPeriod.Seconds() <= 0 {
 		return fmt.Errorf("voting period must be positive: %s", p.VotingPeriod)
@@ -187,18 +195,18 @@ func (p Params) ValidateBasic() error {
 		return fmt.Errorf("expedited voting period must be positive: %s", p.ExpeditedVotingPeriod)
 	}
 	if p.ExpeditedVotingPeriod.Seconds() >= p.VotingPeriod.Seconds() {
-		return fmt.Errorf("expedited voting period %s must be strictly less than the regular voting period %s", p.ExpeditedVotingPeriod, p.VotingPeriod)
+		return fmt.Errorf("expedited voting period %s must be strictly less that the regular voting period %s", p.ExpeditedVotingPeriod, p.VotingPeriod)
 	}
 
 	minInitialDepositRatio, err := sdkmath.LegacyNewDecFromStr(p.MinInitialDepositRatio)
 	if err != nil {
-		return fmt.Errorf("invalid minimum initial deposit ratio of proposal: %w", err)
+		return fmt.Errorf("invalid mininum initial deposit ratio of proposal: %w", err)
 	}
 	if minInitialDepositRatio.IsNegative() {
-		return fmt.Errorf("minimum initial deposit ratio of proposal must be positive: %s", minInitialDepositRatio)
+		return fmt.Errorf("mininum initial deposit ratio of proposal must be positive: %s", minInitialDepositRatio)
 	}
 	if minInitialDepositRatio.GT(sdkmath.LegacyOneDec()) {
-		return fmt.Errorf("minimum initial deposit ratio of proposal is too large: %s", minInitialDepositRatio)
+		return fmt.Errorf("mininum initial deposit ratio of proposal is too large: %s", minInitialDepositRatio)
 	}
 
 	proposalCancelRate, err := sdkmath.LegacyNewDecFromStr(p.ProposalCancelRatio)

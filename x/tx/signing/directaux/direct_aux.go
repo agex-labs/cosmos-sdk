@@ -2,7 +2,6 @@ package directaux
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/cosmos/cosmos-proto/anyutil"
@@ -11,8 +10,7 @@ import (
 
 	signingv1beta1 "cosmossdk.io/api/cosmos/tx/signing/v1beta1"
 	txv1beta1 "cosmossdk.io/api/cosmos/tx/v1beta1"
-
-	"github.com/cosmos/cosmos-sdk/x/tx/signing"
+	"cosmossdk.io/x/tx/signing"
 )
 
 // SignModeHandler is the SIGN_MODE_DIRECT_AUX implementation of signing.SignModeHandler.
@@ -36,7 +34,7 @@ func NewSignModeHandler(options SignModeHandlerOptions) (SignModeHandler, error)
 	h := SignModeHandler{}
 
 	if options.SignersContext == nil {
-		return h, errors.New("signers context is required")
+		return h, fmt.Errorf("signers context is required")
 	}
 	h.signersContext = options.SignersContext
 
@@ -62,7 +60,7 @@ func (h SignModeHandler) Mode() signingv1beta1.SignMode {
 // https://github.com/cosmos/cosmos-sdk/blob/4a6a1e3cb8de459891cb0495052589673d14ef51/x/auth/tx/builder.go#L142
 func (h SignModeHandler) getFirstSigner(txData signing.TxData) ([]byte, error) {
 	if len(txData.Body.Messages) == 0 {
-		return nil, errors.New("no signer found")
+		return nil, fmt.Errorf("no signer found")
 	}
 
 	msg, err := anyutil.Unpack(txData.Body.Messages[0], h.fileResolver, h.typeResolver)
@@ -102,8 +100,7 @@ func (h SignModeHandler) GetSignBytes(
 		ChainId:       signerData.ChainID,
 		AccountNumber: signerData.AccountNumber,
 		Sequence:      signerData.Sequence,
+		Tip:           txData.AuthInfo.Tip, //nolint:staticcheck // keep it for compatibility
 	}
-
-	protov2MarshalOpts := proto.MarshalOptions{Deterministic: true}
-	return protov2MarshalOpts.Marshal(signDocDirectAux)
+	return proto.Marshal(signDocDirectAux)
 }

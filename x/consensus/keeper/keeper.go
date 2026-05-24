@@ -11,11 +11,12 @@ import (
 	"cosmossdk.io/collections"
 	"cosmossdk.io/core/event"
 	storetypes "cosmossdk.io/core/store"
+	"cosmossdk.io/errors"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/consensus/exported"
 	"github.com/cosmos/cosmos-sdk/x/consensus/types"
+	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 )
 
 var StoreKey = "Consensus"
@@ -40,6 +41,10 @@ func NewKeeper(cdc codec.BinaryCodec, storeService storetypes.KVStoreService, au
 	}
 }
 
+func (k *Keeper) GetAuthority() string {
+	return k.authority
+}
+
 // Querier
 
 var _ types.QueryServer = Keeper{}
@@ -58,49 +63,20 @@ func (k Keeper) Params(ctx context.Context, _ *types.QueryParamsRequest) (*types
 
 var _ types.MsgServer = Keeper{}
 
-func (k *Keeper) GetAuthority() string {
-	return k.authority
-}
-
-// UpdateParams updates consensus parameters. Note that the new authority value
-// takes effect at the start of the next block, when BeginBlock loads fresh
-// consensus params from the store. Within the same block as this update,
-// ValidateAuthority still checks against the old authority.
 func (k Keeper) UpdateParams(ctx context.Context, msg *types.MsgUpdateParams) (*types.MsgUpdateParamsResponse, error) {
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-
-	if err := sdk.ValidateAuthority(sdkCtx, k.authority, msg.Authority); err != nil {
-		return nil, err
+	if k.GetAuthority() != msg.Authority {
+		return nil, errors.Wrapf(govtypes.ErrInvalidSigner, "invalid authority; expected %s, got %s", k.GetAuthority(), msg.Authority)
 	}
 
 	consensusParams, err := msg.ToProtoConsensusParams()
 	if err != nil {
 		return nil, err
 	}
-
-	paramsProto, err := k.ParamsStore.Get(ctx)
-	if err != nil {
+	if err := cmttypes.ConsensusParamsFromProto(consensusParams).ValidateBasic(); err != nil {
 		return nil, err
 	}
 
-	// initialize version params with zero value if not set
-	if paramsProto.Version == nil {
-		paramsProto.Version = &cmtproto.VersionParams{}
-	}
-
-	params := cmttypes.ConsensusParamsFromProto(paramsProto)
-
-	nextParams := params.Update(&consensusParams)
-
-	if err := nextParams.ValidateBasic(); err != nil {
-		return nil, err
-	}
-
-	if err := params.ValidateUpdate(&consensusParams, sdkCtx.BlockHeader().Height); err != nil {
-		return nil, err
-	}
-
-	if err := k.ParamsStore.Set(ctx, nextParams.ToProto()); err != nil {
+	if err := k.ParamsStore.Set(ctx, consensusParams); err != nil {
 		return nil, err
 	}
 

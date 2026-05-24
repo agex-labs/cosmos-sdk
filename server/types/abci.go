@@ -14,9 +14,7 @@ type ABCI interface {
 	Query(context.Context, *abci.RequestQuery) (*abci.ResponseQuery, error) // Query for state
 
 	// Mempool Connection
-	CheckTx(*abci.RequestCheckTx) (*abci.ResponseCheckTx, error)    // Validate a tx for the mempool
-	InsertTx(*abci.RequestInsertTx) (*abci.ResponseInsertTx, error) // Insert a tx into the applications mempool
-	ReapTxs(*abci.RequestReapTxs) (*abci.ResponseReapTxs, error)    // Return new valid txs from the applications mempool
+	CheckTx(*abci.RequestCheckTx) (*abci.ResponseCheckTx, error) // Validate a tx for the mempool
 
 	// Consensus Connection
 	InitChain(*abci.RequestInitChain) (*abci.ResponseInitChain, error) // Initialize blockchain w validators/other info from CometBFT
@@ -35,5 +33,5 @@ type ABCI interface {
 	ListSnapshots(*abci.RequestListSnapshots) (*abci.ResponseListSnapshots, error)                // List available snapshots
 	OfferSnapshot(*abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot, error)                // Offer a snapshot to the application
 	LoadSnapshotChunk(*abci.RequestLoadSnapshotChunk) (*abci.ResponseLoadSnapshotChunk, error)    // Load a snapshot chunk
-	ApplySnapshotChunk(*abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error) // Apply a snapshot chunk
+	ApplySnapshotChunk(*abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error) // Apply a shapshot chunk
 }

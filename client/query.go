@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -10,7 +11,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/cosmos/cosmos-sdk/store/v2/rootmulti"
+	"cosmossdk.io/store/rootmulti"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
@@ -59,7 +61,7 @@ func (ctx Context) GetFromAddress() sdk.AccAddress {
 	return ctx.FromAddress
 }
 
-// GetFeePayerAddress returns the fee payer address from the context
+// GetFeePayerAddress returns the fee granter address from the context
 func (ctx Context) GetFeePayerAddress() sdk.AccAddress {
 	return ctx.FeePayer
 }
@@ -93,7 +95,7 @@ func (ctx Context) queryABCI(req abci.RequestQuery) (abci.ResponseQuery, error) 
 		Prove:  req.Prove,
 	}
 
-	result, err := node.ABCIQueryWithOptions(ctx.GetCmdContextWithFallback(), req.Path, req.Data, opts)
+	result, err := node.ABCIQueryWithOptions(context.Background(), req.Path, req.Data, opts)
 	if err != nil {
 		return abci.ResponseQuery{}, err
 	}

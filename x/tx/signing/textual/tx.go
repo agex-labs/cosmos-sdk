@@ -16,8 +16,7 @@ import (
 	msg "cosmossdk.io/api/cosmos/msg/v1"
 	signingv1beta1 "cosmossdk.io/api/cosmos/tx/signing/v1beta1"
 	txv1beta1 "cosmossdk.io/api/cosmos/tx/v1beta1"
-
-	"github.com/cosmos/cosmos-sdk/x/tx/signing/textual/internal/textualpb"
+	"cosmossdk.io/x/tx/signing/textual/internal/textualpb"
 )
 
 var (
@@ -80,13 +79,14 @@ func (vr txValueRenderer) Format(ctx context.Context, v protoreflect.Value) ([]S
 		FeeGranter:                  txAuthInfo.Fee.Granter,
 		GasLimit:                    txAuthInfo.Fee.GasLimit,
 		TimeoutHeight:               txBody.TimeoutHeight,
-		TimeoutTimestamp:            txBody.TimeoutTimestamp,
-		Unordered:                   txBody.Unordered,
 		ExtensionOptions:            txBody.ExtensionOptions,
 		NonCriticalExtensionOptions: txBody.NonCriticalExtensionOptions,
 		HashOfRawBytes:              getHash(textualData.BodyBytes, textualData.AuthInfoBytes),
 	}
-
+	if txAuthInfo.Tip != nil { //nolint:staticcheck // we still need this deprecated struct
+		envelope.Tip = txAuthInfo.Tip.Amount    //nolint:staticcheck // we still need this deprecated struct
+		envelope.Tipper = txAuthInfo.Tip.Tipper //nolint:staticcheck // we still need this deprecated struct
+	}
 	// Find all other tx signers than the current signer. In the case where our
 	// Textual signer is one key of a multisig, then otherSigners will include
 	// the multisig pubkey.
@@ -128,8 +128,6 @@ func (vr txValueRenderer) Format(ctx context.Context, v protoreflect.Value) ([]S
 		"Fee granter":                    {},
 		"Gas limit":                      {},
 		"Timeout height":                 {},
-		"Timeout timestamp":              {},
-		"Unordered":                      {},
 		"Other signer":                   {},
 		"Extension options":              {},
 		"Non critical extension options": {},
@@ -205,7 +203,7 @@ func (vr txValueRenderer) Parse(ctx context.Context, screens []Screen) (protoref
 	for i := range screens {
 		parsable[i+1].Indent = screens[i].Indent + 1
 
-		// Take same text, except that we replace:
+		// Take same text, except that we weplace:
 		// "This transaction has <N> Message"
 		// with:
 		// "Message: <N> Any"
@@ -234,8 +232,6 @@ func (vr txValueRenderer) Parse(ctx context.Context, screens []Screen) (protoref
 		Messages:                    envelope.Message,
 		Memo:                        envelope.Memo,
 		TimeoutHeight:               envelope.TimeoutHeight,
-		TimeoutTimestamp:            envelope.TimeoutTimestamp,
-		Unordered:                   envelope.Unordered,
 		ExtensionOptions:            envelope.ExtensionOptions,
 		NonCriticalExtensionOptions: envelope.NonCriticalExtensionOptions,
 	}
@@ -246,6 +242,12 @@ func (vr txValueRenderer) Parse(ctx context.Context, screens []Screen) (protoref
 			Payer:    envelope.FeePayer,
 			Granter:  envelope.FeeGranter,
 		},
+	}
+	if envelope.Tip != nil {
+		authInfo.Tip = &txv1beta1.Tip{ //nolint:staticcheck // we still need this deprecated struct
+			Amount: envelope.Tip,
+			Tipper: envelope.Tipper,
+		}
 	}
 
 	// Figure out the signers in the correct order.
@@ -279,12 +281,11 @@ func (vr txValueRenderer) Parse(ctx context.Context, screens []Screen) (protoref
 	// Note that we might not always get back the exact bodyBz and authInfoBz
 	// that was passed into, because protobuf is not deterministic.
 	// In tests, we don't check bytes equality, but protobuf object equality.
-	protov2MarshalOpts := proto.MarshalOptions{Deterministic: true}
-	bodyBz, err := protov2MarshalOpts.Marshal(txBody)
+	bodyBz, err := proto.Marshal(txBody)
 	if err != nil {
 		return nilValue, err
 	}
-	authInfoBz, err := protov2MarshalOpts.Marshal(authInfo)
+	authInfoBz, err := proto.Marshal(authInfo)
 	if err != nil {
 		return nilValue, err
 	}

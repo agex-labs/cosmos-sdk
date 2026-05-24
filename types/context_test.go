@@ -8,15 +8,12 @@ import (
 	abci "github.com/cometbft/cometbft/abci/types"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	cmttime "github.com/cometbft/cometbft/types/time"
-	dbm "github.com/cosmos/cosmos-db"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/suite"
-	"go.uber.org/mock/gomock"
 
-	"cosmossdk.io/log/v2"
+	storetypes "cosmossdk.io/store/types"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/store/v2/rootmulti"
-	storetypes "github.com/cosmos/cosmos-sdk/store/v2/types"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	"github.com/cosmos/cosmos-sdk/testutil/mock"
 	"github.com/cosmos/cosmos-sdk/types"
@@ -142,7 +139,7 @@ func (s *contextTestSuite) TestContextWithCustom() {
 	s.Require().Equal(cp, ctx.WithConsensusParams(cp).ConsensusParams())
 
 	// test inner context
-	newContext := context.WithValue(ctx.Context(), struct{}{}, "value") //nolint:staticcheck // this is fine for testing
+	newContext := context.WithValue(ctx.Context(), struct{}{}, "value")
 	s.Require().NotEqual(ctx.Context(), ctx.WithContext(newContext).Context())
 }
 
@@ -216,6 +213,7 @@ func (s *contextTestSuite) TestContextHeaderClone() {
 	}
 
 	for name, tc := range cases {
+		tc := tc
 		s.T().Run(name, func(t *testing.T) {
 			ctx := types.NewContext(nil, tc.h, false, nil)
 			s.Require().Equal(tc.h.Height, ctx.BlockHeight())
@@ -240,19 +238,7 @@ func (s *contextTestSuite) TestUnwrapSDKContext() {
 	s.Require().Panics(func() { types.UnwrapSDKContext(ctx) })
 
 	// test unwrapping when we've used context.WithValue
-	ctx = context.WithValue(sdkCtx, struct{}{}, "bar") //nolint:staticcheck // this is fine for testing
+	ctx = context.WithValue(sdkCtx, struct{}{}, "bar")
 	sdkCtx2 = types.UnwrapSDKContext(ctx)
 	s.Require().Equal(sdkCtx, sdkCtx2)
-}
-
-func (s *contextTestSuite) TestMultiStore() {
-	db := dbm.NewMemDB()
-	rms := rootmulti.NewStore(db, log.NewNopLogger())
-	ctx := types.NewContext(rms, cmtproto.Header{}, false, nil)
-
-	objKey := storetypes.NewObjectStoreKey("obj")
-	rms.MountStoreWithDB(objKey, storetypes.StoreTypeObject, nil)
-	s.Require().NoError(rms.LoadLatestVersion())
-	objKVStore := ctx.ObjectStore(objKey)
-	s.Require().Equal(objKVStore.GetStoreType(), storetypes.StoreTypeObject)
 }

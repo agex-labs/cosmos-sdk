@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/hashicorp/go-metrics"
 
@@ -12,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
+	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 )
 
 type msgServer struct {
@@ -64,10 +64,10 @@ func (k msgServer) WithdrawDelegatorReward(ctx context.Context, msg *types.MsgWi
 	defer func() {
 		for _, a := range amount {
 			if a.Amount.IsInt64() {
-				telemetry.SetGaugeWithLabels( //nolint:staticcheck // TODO: switch to OpenTelemetry
+				telemetry.SetGaugeWithLabels(
 					[]string{"tx", "msg", "withdraw_reward"},
 					float32(a.Amount.Int64()),
-					[]metrics.Label{telemetry.NewLabel("denom", a.Denom)}, //nolint:staticcheck // TODO: switch to OpenTelemetry
+					[]metrics.Label{telemetry.NewLabel("denom", a.Denom)},
 				)
 			}
 		}
@@ -90,10 +90,10 @@ func (k msgServer) WithdrawValidatorCommission(ctx context.Context, msg *types.M
 	defer func() {
 		for _, a := range amount {
 			if a.Amount.IsInt64() {
-				telemetry.SetGaugeWithLabels( //nolint:staticcheck // TODO: switch to OpenTelemetry
+				telemetry.SetGaugeWithLabels(
 					[]string{"tx", "msg", "withdraw_commission"},
 					float32(a.Amount.Int64()),
-					[]metrics.Label{telemetry.NewLabel("denom", a.Denom)}, //nolint:staticcheck // TODO: switch to OpenTelemetry
+					[]metrics.Label{telemetry.NewLabel("denom", a.Denom)},
 				)
 			}
 		}
@@ -119,9 +119,8 @@ func (k msgServer) FundCommunityPool(ctx context.Context, msg *types.MsgFundComm
 	return &types.MsgFundCommunityPoolResponse{}, nil
 }
 
-func (k msgServer) UpdateParams(goCtx context.Context, msg *types.MsgUpdateParams) (*types.MsgUpdateParamsResponse, error) {
-	ctx := sdk.UnwrapSDKContext(goCtx)
-	if err := sdk.ValidateAuthority(ctx, k.authority, msg.Authority); err != nil {
+func (k msgServer) UpdateParams(ctx context.Context, msg *types.MsgUpdateParams) (*types.MsgUpdateParamsResponse, error) {
+	if err := k.validateAuthority(msg.Authority); err != nil {
 		return nil, err
 	}
 
@@ -141,9 +140,8 @@ func (k msgServer) UpdateParams(goCtx context.Context, msg *types.MsgUpdateParam
 	return &types.MsgUpdateParamsResponse{}, nil
 }
 
-func (k msgServer) CommunityPoolSpend(goCtx context.Context, msg *types.MsgCommunityPoolSpend) (*types.MsgCommunityPoolSpendResponse, error) {
-	ctx := sdk.UnwrapSDKContext(goCtx)
-	if err := sdk.ValidateAuthority(ctx, k.authority, msg.Authority); err != nil {
+func (k msgServer) CommunityPoolSpend(ctx context.Context, msg *types.MsgCommunityPoolSpend) (*types.MsgCommunityPoolSpendResponse, error) {
+	if err := k.validateAuthority(msg.Authority); err != nil {
 		return nil, err
 	}
 
@@ -192,7 +190,7 @@ func (k msgServer) DepositValidatorRewardsPool(ctx context.Context, msg *types.M
 	}
 
 	if validator == nil {
-		return nil, errors.Wrapf(types.ErrNoValidatorExists, "%s", msg.ValidatorAddress)
+		return nil, errors.Wrapf(types.ErrNoValidatorExists, msg.ValidatorAddress)
 	}
 
 	// Allocate tokens from the distribution module to the validator, which are
@@ -200,36 +198,6 @@ func (k msgServer) DepositValidatorRewardsPool(ctx context.Context, msg *types.M
 	reward := sdk.NewDecCoinsFromCoins(msg.Amount...)
 	if err = k.AllocateTokensToValidator(ctx, validator, reward); err != nil {
 		return nil, err
-	}
-
-	// make sure the reward pool isn't already full.
-	if !validator.GetTokens().IsZero() {
-		rewards, err := k.GetValidatorCurrentRewards(ctx, valAddr)
-		if err != nil {
-			return nil, err
-		}
-		current := rewards.Rewards
-		historical, err := k.GetValidatorHistoricalRewards(ctx, valAddr, rewards.Period-1)
-		if err != nil {
-			return nil, err
-		}
-		if !historical.CumulativeRewardRatio.IsZero() {
-			rewardRatio := historical.CumulativeRewardRatio
-			var panicErr error
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						panicErr = fmt.Errorf("deposit is too large: %v", r)
-					}
-				}()
-				rewardRatio.Add(current...)
-			}()
-
-			// Check if the deferred function caught a panic
-			if panicErr != nil {
-				return nil, fmt.Errorf("unable to deposit coins: %w", panicErr)
-			}
-		}
 	}
 
 	logger := k.Logger(ctx)
@@ -241,6 +209,18 @@ func (k msgServer) DepositValidatorRewardsPool(ctx context.Context, msg *types.M
 	)
 
 	return &types.MsgDepositValidatorRewardsPoolResponse{}, nil
+}
+
+func (k *Keeper) validateAuthority(authority string) error {
+	if _, err := k.authKeeper.AddressCodec().StringToBytes(authority); err != nil {
+		return sdkerrors.ErrInvalidAddress.Wrapf("invalid authority address: %s", err)
+	}
+
+	if k.authority != authority {
+		return errors.Wrapf(govtypes.ErrInvalidSigner, "invalid authority; expected %s, got %s", k.authority, authority)
+	}
+
+	return nil
 }
 
 func validateAmount(amount sdk.Coins) error {

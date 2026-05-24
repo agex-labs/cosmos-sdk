@@ -2,7 +2,6 @@ package aminojson
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -33,12 +32,16 @@ import (
 	txv1beta1 "cosmossdk.io/api/cosmos/tx/v1beta1"
 	vestingapi "cosmossdk.io/api/cosmos/vesting/v1beta1"
 	"cosmossdk.io/math"
+	"cosmossdk.io/x/evidence"
+	feegrantmodule "cosmossdk.io/x/feegrant/module"
+	"cosmossdk.io/x/tx/signing/aminojson"
+	signing_testutil "cosmossdk.io/x/tx/signing/testutil"
+	"cosmossdk.io/x/upgrade"
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	ed25519types "github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	secp256k1types "github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	groupmodule "github.com/cosmos/cosmos-sdk/enterprise/group/x/group/module"
 	"github.com/cosmos/cosmos-sdk/tests/integration/rapidgen"
 	gogo_testpb "github.com/cosmos/cosmos-sdk/tests/integration/tx/internal/gogo/testpb"
 	pulsar_testpb "github.com/cosmos/cosmos-sdk/tests/integration/tx/internal/pulsar/testpb"
@@ -61,19 +64,16 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/consensus"
 	"github.com/cosmos/cosmos-sdk/x/distribution"
 	disttypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
-	"github.com/cosmos/cosmos-sdk/x/evidence"
-	feegrantmodule "github.com/cosmos/cosmos-sdk/x/feegrant/module"
 	"github.com/cosmos/cosmos-sdk/x/gov"
 	gov_v1_types "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
 	gov_v1beta1_types "github.com/cosmos/cosmos-sdk/x/gov/types/v1beta1"
+	groupmodule "github.com/cosmos/cosmos-sdk/x/group/module"
 	"github.com/cosmos/cosmos-sdk/x/mint"
+	"github.com/cosmos/cosmos-sdk/x/params"
 	"github.com/cosmos/cosmos-sdk/x/slashing"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	"github.com/cosmos/cosmos-sdk/x/tx/signing/aminojson"
-	signing_testutil "github.com/cosmos/cosmos-sdk/x/tx/signing/testutil"
-	"github.com/cosmos/cosmos-sdk/x/upgrade"
 )
 
 // TestAminoJSON_Equivalence tests that x/tx/Encoder encoding is equivalent to the legacy Encoder encoding.
@@ -94,10 +94,10 @@ func TestAminoJSON_Equivalence(t *testing.T) {
 	encCfg := testutil.MakeTestEncodingConfig(
 		auth.AppModuleBasic{}, authzmodule.AppModuleBasic{}, bank.AppModuleBasic{}, consensus.AppModuleBasic{},
 		distribution.AppModuleBasic{}, evidence.AppModuleBasic{}, feegrantmodule.AppModuleBasic{},
-		gov.AppModuleBasic{}, groupmodule.AppModuleBasic{}, mint.AppModuleBasic{},
+		gov.AppModuleBasic{}, groupmodule.AppModuleBasic{}, mint.AppModuleBasic{}, params.AppModuleBasic{},
 		slashing.AppModuleBasic{}, staking.AppModuleBasic{}, upgrade.AppModuleBasic{}, vesting.AppModuleBasic{})
 	legacytx.RegressionTestingAminoCodec = encCfg.Amino
-	aj := aminojson.NewEncoder(aminojson.EncoderOptions{})
+	aj := aminojson.NewEncoder(aminojson.EncoderOptions{DoNotSortFields: true})
 
 	for _, tt := range rapidgen.DefaultGeneratedTypes {
 		desc := tt.Pulsar.ProtoReflect().Descriptor()
@@ -131,7 +131,6 @@ func TestAminoJSON_Equivalence(t *testing.T) {
 
 				legacyAminoJSON, err := encCfg.Amino.MarshalJSON(gogo)
 				require.NoError(t, err)
-				legacyAminoJSON = sortJSON(t, legacyAminoJSON)
 				aminoJSON, err := aj.Marshal(msg)
 				require.NoError(t, err)
 				require.Equal(t, string(legacyAminoJSON), string(aminoJSON))
@@ -161,7 +160,7 @@ func TestAminoJSON_Equivalence(t *testing.T) {
 				signBz, err := handler.GetSignBytes(context.Background(), signerData, txData)
 				require.NoError(t, err)
 
-				legacyHandler := tx.NewSignModeLegacyAminoJSONHandler() //nolint:staticcheck // needed for legacy testing
+				legacyHandler := tx.NewSignModeLegacyAminoJSONHandler()
 				txBuilder := encCfg.TxConfig.NewTxBuilder()
 				require.NoError(t, txBuilder.SetMsgs([]types.Msg{tt.Gogo}...))
 				txBuilder.SetMemo(handlerOptions.Memo)
@@ -184,8 +183,6 @@ func TestAminoJSON_Equivalence(t *testing.T) {
 }
 
 func newAny(t *testing.T, msg proto.Message) *anypb.Any {
-	t.Helper()
-
 	bz, err := proto.Marshal(msg)
 	require.NoError(t, err)
 	typeName := fmt.Sprintf("/%s", msg.ProtoReflect().Descriptor().FullName())
@@ -222,21 +219,19 @@ func TestAminoJSON_LegacyParity(t *testing.T) {
 		// represent the array as nil, and a subsequent marshal to JSON represent the array as null instead of empty.
 		roundTripUnequal bool
 
-		// sort JSON bytes before comparison.  for certain types (like ModuleAccount) x/tx is not able to provide an
-		// unsorted version.  note that the legacy amino signer always sorted JSON bytes by round tripping them to/from
-		// JSON before signing over them.
-		sortJSON bool
+		// pulsar does not support marshaling a math.Dec as anything except a string.  Therefore, we cannot unmarshal
+		// a pulsar encoded Math.dec (the string representation of a Decimal) into a gogo Math.dec (expecting an int64).
+		protoUnmarshalFails bool
 	}{
 		"auth/params": {gogo: &authtypes.Params{TxSigLimit: 10}, pulsar: &authapi.Params{TxSigLimit: 10}},
 		"auth/module_account": {
 			gogo: &authtypes.ModuleAccount{
-				BaseAccount: authtypes.NewBaseAccountWithAddress(addr1),
+				BaseAccount: authtypes.NewBaseAccountWithAddress(addr1), Permissions: []string{},
 			},
 			pulsar: &authapi.ModuleAccount{
-				BaseAccount: &authapi.BaseAccount{Address: addr1.String()},
+				BaseAccount: &authapi.BaseAccount{Address: addr1.String()}, Permissions: []string{},
 			},
 			roundTripUnequal: true,
-			sortJSON:         true,
 		},
 		"auth/base_account": {
 			gogo:   &authtypes.BaseAccount{Address: addr1.String(), PubKey: pubkeyAny},
@@ -263,8 +258,9 @@ func TestAminoJSON_LegacyParity(t *testing.T) {
 			pulsar: &distapi.DelegatorStartingInfo{},
 		},
 		"distribution/delegator_starting_info/non_zero_dec": {
-			gogo:   &disttypes.DelegatorStartingInfo{Stake: math.LegacyNewDec(10)},
-			pulsar: &distapi.DelegatorStartingInfo{Stake: string(dec10bz)},
+			gogo:                &disttypes.DelegatorStartingInfo{Stake: math.LegacyNewDec(10)},
+			pulsar:              &distapi.DelegatorStartingInfo{Stake: "10.000000000000000000"},
+			protoUnmarshalFails: true,
 		},
 		"distribution/delegation_delegator_reward": {
 			gogo:   &disttypes.DelegationDelegatorReward{},
@@ -272,7 +268,7 @@ func TestAminoJSON_LegacyParity(t *testing.T) {
 		},
 		"distribution/community_pool_spend_proposal_with_deposit": {
 			gogo:   &disttypes.CommunityPoolSpendProposalWithDeposit{},
-			pulsar: &distapi.CommunityPoolSpendProposalWithDeposit{},
+			pulsar: &distapi.CommunityPoolSpendProposalWithDeposit{}, //nolint:staticcheck // keep test as is testing legacy parity
 		},
 		"distribution/msg_withdraw_delegator_reward": {
 			gogo:   &disttypes.MsgWithdrawDelegatorReward{DelegatorAddress: "foo"},
@@ -286,17 +282,13 @@ func TestAminoJSON_LegacyParity(t *testing.T) {
 			gogo:   &secp256k1types.PubKey{Key: []byte("key")},
 			pulsar: &secp256k1.PubKey{Key: []byte("key")},
 		},
-		"crypto/legacy_amino_pubkey/filled": {
-			gogo:             &multisig.LegacyAminoPubKey{PubKeys: []*codectypes.Any{pubkeyAny}},
-			pulsar:           &multisigapi.LegacyAminoPubKey{PublicKeys: []*anypb.Any{pubkeyAnyPulsar}},
-			sortJSON:         true,
-			roundTripUnequal: true,
+		"crypto/legacy_amino_pubkey": {
+			gogo:   &multisig.LegacyAminoPubKey{PubKeys: []*codectypes.Any{pubkeyAny}},
+			pulsar: &multisigapi.LegacyAminoPubKey{PublicKeys: []*anypb.Any{pubkeyAnyPulsar}},
 		},
 		"crypto/legacy_amino_pubkey/empty": {
-			gogo:             &multisig.LegacyAminoPubKey{},
-			pulsar:           &multisigapi.LegacyAminoPubKey{},
-			sortJSON:         true,
-			roundTripUnequal: true,
+			gogo:   &multisig.LegacyAminoPubKey{},
+			pulsar: &multisigapi.LegacyAminoPubKey{},
 		},
 		"consensus/evidence_params/duration": {
 			gogo:   &gov_v1beta1_types.VotingParams{VotingPeriod: 1e9 + 7},
@@ -347,14 +339,6 @@ func TestAminoJSON_LegacyParity(t *testing.T) {
 		// This test cases demonstrates the expected contract and proper way to set a cosmos.Dec field represented
 		// as bytes in protobuf message, namely:
 		// dec10bz, _ := types.NewDec(10).Marshal()
-		"gov/v1_params": {
-			gogo: &gov_v1_types.Params{
-				Quorum: math.LegacyMustNewDecFromStr("0.33").String(),
-			},
-			pulsar: &gov_v1_api.Params{
-				Quorum: math.LegacyMustNewDecFromStr("0.33").String(),
-			},
-		},
 		"slashing/params/dec": {
 			gogo: &slashingtypes.Params{
 				DowntimeJailDuration: 1e9 + 7,
@@ -423,9 +407,6 @@ func TestAminoJSON_LegacyParity(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gogoBytes, err := encCfg.Amino.MarshalJSON(tc.gogo)
 			require.NoError(t, err)
-			if tc.sortJSON {
-				gogoBytes = sortJSON(t, gogoBytes)
-			}
 
 			pulsarBytes, err := aj.Marshal(tc.pulsar)
 			if tc.pulsarMarshalFails {
@@ -445,6 +426,10 @@ func TestAminoJSON_LegacyParity(t *testing.T) {
 			newGogo := reflect.New(gogoType).Interface().(gogoproto.Message)
 
 			err = encCfg.Codec.Unmarshal(pulsarProtoBytes, newGogo)
+			if tc.protoUnmarshalFails {
+				require.Error(t, err)
+				return
+			}
 			require.NoError(t, err)
 
 			newGogoBytes, err := encCfg.Amino.MarshalJSON(newGogo)
@@ -456,7 +441,7 @@ func TestAminoJSON_LegacyParity(t *testing.T) {
 			require.Equal(t, string(gogoBytes), string(newGogoBytes))
 
 			// test amino json signer handler equivalence
-			msg, ok := tc.gogo.(legacytx.LegacyMsg) //nolint:staticcheck // needed for legacy testing
+			msg, ok := tc.gogo.(legacytx.LegacyMsg)
 			if !ok {
 				// not signable
 				return
@@ -481,7 +466,7 @@ func TestAminoJSON_LegacyParity(t *testing.T) {
 			signBz, err := handler.GetSignBytes(context.Background(), signerData, txData)
 			require.NoError(t, err)
 
-			legacyHandler := tx.NewSignModeLegacyAminoJSONHandler() //nolint:staticcheck // needed for legacy testing
+			legacyHandler := tx.NewSignModeLegacyAminoJSONHandler()
 			txBuilder := encCfg.TxConfig.NewTxBuilder()
 			require.NoError(t, txBuilder.SetMsgs([]types.Msg{msg}...))
 			txBuilder.SetMemo(handlerOptions.Memo)
@@ -587,13 +572,4 @@ func postFixPulsarMessage(msg proto.Message) {
 			m.Permissions = nil
 		}
 	}
-}
-
-func sortJSON(t require.TestingT, bz []byte) []byte {
-	var c interface{}
-	err := json.Unmarshal(bz, &c)
-	require.NoError(t, err)
-	bz, err = json.Marshal(c)
-	require.NoError(t, err)
-	return bz
 }

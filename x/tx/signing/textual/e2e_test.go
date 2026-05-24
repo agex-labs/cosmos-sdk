@@ -16,10 +16,9 @@ import (
 	_ "cosmossdk.io/api/cosmos/crypto/multisig"
 	_ "cosmossdk.io/api/cosmos/crypto/secp256k1"
 	_ "cosmossdk.io/api/cosmos/gov/v1"
-
-	"github.com/cosmos/cosmos-sdk/x/tx/signing"
-	"github.com/cosmos/cosmos-sdk/x/tx/signing/textual"
-	"github.com/cosmos/cosmos-sdk/x/tx/signing/textual/internal/textualpb"
+	"cosmossdk.io/x/tx/signing"
+	"cosmossdk.io/x/tx/signing/textual"
+	"cosmossdk.io/x/tx/signing/textual/internal/textualpb"
 )
 
 type e2eJSONTest struct {
@@ -72,10 +71,6 @@ func TestE2EJSONTestcases(t *testing.T) {
 				AuthInfoBytes: authInfoBz,
 			})
 			require.NoError(t, err)
-			decodeWant, err := hex.DecodeString(tc.Cbor)
-			require.NoError(t, err)
-			t.Log("got: " + string(signDoc))
-			t.Log("want " + string(decodeWant))
 			require.Equal(t, tc.Cbor, hex.EncodeToString(signDoc))
 		})
 	}

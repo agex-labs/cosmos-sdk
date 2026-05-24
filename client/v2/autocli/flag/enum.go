@@ -14,7 +14,7 @@ type enumType struct {
 	enum protoreflect.EnumDescriptor
 }
 
-func (b enumType) NewValue(*context.Context, *Builder) Value {
+func (b enumType) NewValue(context.Context, *Builder) Value {
 	val := &enumValue{
 		enum:   b.enum,
 		valMap: map[string]protoreflect.EnumValueDescriptor{},
@@ -58,12 +58,7 @@ func (e enumValue) String() string {
 func (e *enumValue) Set(s string) error {
 	valDesc, ok := e.valMap[s]
 	if !ok {
-		var validValues []string
-		for k := range e.valMap {
-			validValues = append(validValues, k)
-		}
-
-		return fmt.Errorf("%s is not a valid value for enum %s. Valid values are: %s", s, e.enum.FullName(), strings.Join(validValues, ", "))
+		return fmt.Errorf("%s is not a valid value for enum %s", s, e.enum.FullName())
 	}
 	e.value = valDesc.Number()
 	return nil

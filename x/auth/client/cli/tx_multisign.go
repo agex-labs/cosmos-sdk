@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	errorsmod "cosmossdk.io/errors"
+	txsigning "cosmossdk.io/x/tx/signing"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -23,7 +24,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/version"
 	authclient "github.com/cosmos/cosmos-sdk/x/auth/client"
 	"github.com/cosmos/cosmos-sdk/x/auth/signing"
-	txsigning "github.com/cosmos/cosmos-sdk/x/tx/signing"
 )
 
 // GetMultiSignCommand returns the multi-sign command
@@ -48,10 +48,6 @@ If the --offline flag is on, the client will not reach out to an external node.
 Account number or sequence number lookups are not performed so you must
 set these parameters manually.
 
-If the --skip-signature-verification flag is on, the command will not verify the
-signatures in the provided signature files. This is useful when the multisig
-account is a signer in a nested multisig scenario.
-
 The current multisig implementation defaults to amino-json sign mode.
 The SIGN_MODE_DIRECT sign mode is not supported.'
 `,
@@ -62,7 +58,6 @@ The SIGN_MODE_DIRECT sign mode is not supported.'
 		Args: cobra.MinimumNArgs(3),
 	}
 
-	cmd.Flags().Bool(flagSkipSignatureVerification, false, "Skip signature verification")
 	cmd.Flags().Bool(flagSigOnly, false, "Print only the generated signature, then exit")
 	cmd.Flags().String(flags.FlagOutputDocument, "", "The document is written to the given file instead of STDOUT")
 	flags.AddTxFlagsToCmd(cmd)
@@ -73,15 +68,13 @@ The SIGN_MODE_DIRECT sign mode is not supported.'
 
 func makeMultiSignCmd() func(cmd *cobra.Command, args []string) (err error) {
 	return func(cmd *cobra.Command, args []string) (err error) {
-		_ = cmd.Flags().Set(flags.FlagFrom, args[1])
-
 		clientCtx, err := client.GetClientTxContext(cmd)
 		if err != nil {
 			return err
 		}
 		parsedTx, err := authclient.ReadTxFromFile(clientCtx, args[0])
 		if err != nil {
-			return err
+			return
 		}
 
 		txFactory, err := tx.NewFactoryCLI(clientCtx, cmd.Flags())
@@ -111,10 +104,6 @@ func makeMultiSignCmd() func(cmd *cobra.Command, args []string) (err error) {
 		if err != nil {
 			return err
 		}
-
-		// avoid signature verification if the sender of the tx is different than
-		// the multisig key (useful for nested multisigs).
-		skipSigVerify, _ := cmd.Flags().GetBool(flagSkipSignatureVerification)
 
 		multisigPub := pubKey.(*kmultisig.LegacyAminoPubKey)
 		multisigSig := multisig.NewMultisig(len(multisigPub.PubKeys))
@@ -160,13 +149,11 @@ func makeMultiSignCmd() func(cmd *cobra.Command, args []string) (err error) {
 				}
 				txData := adaptableTx.GetSigningTxData()
 
-				if !skipSigVerify {
-					err = signing.VerifySignature(cmd.Context(), sig.PubKey, txSignerData, sig.Data,
-						txCfg.SignModeHandler(), txData)
-					if err != nil {
-						addr, _ := sdk.AccAddressFromHexUnsafe(sig.PubKey.Address().String())
-						return fmt.Errorf("couldn't verify signature for address %s %w", addr, err)
-					}
+				err = signing.VerifySignature(cmd.Context(), sig.PubKey, txSignerData, sig.Data,
+					txCfg.SignModeHandler(), txData)
+				if err != nil {
+					addr, _ := sdk.AccAddressFromHexUnsafe(sig.PubKey.Address().String())
+					return fmt.Errorf("couldn't verify signature for address %s", addr)
 				}
 
 				if err := multisig.AddSignatureV2(multisigSig, sig, multisigPub.GetPubKeys()); err != nil {
@@ -387,7 +374,7 @@ func makeBatchMultisignCmd() func(cmd *cobra.Command, args []string) error {
 func unmarshalSignatureJSON(clientCtx client.Context, filename string) (sigs []signingtypes.SignatureV2, err error) {
 	var bytes []byte
 	if bytes, err = os.ReadFile(filename); err != nil {
-		return sigs, err
+		return
 	}
 	return clientCtx.TxConfig.UnmarshalSignatureJSON(bytes)
 }
@@ -399,9 +386,9 @@ func readSignaturesFromFile(ctx client.Context, filename string) (sigs []signing
 	}
 
 	newString := strings.TrimSuffix(string(bz), "\n")
-	lines := strings.SplitSeq(newString, "\n")
+	lines := strings.Split(newString, "\n")
 
-	for bz := range lines {
+	for _, bz := range lines {
 		sig, err := ctx.TxConfig.UnmarshalSignatureJSON([]byte(bz))
 		if err != nil {
 			return nil, err

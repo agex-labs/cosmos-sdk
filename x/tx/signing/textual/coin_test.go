@@ -3,7 +3,6 @@ package textual_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -13,8 +12,7 @@ import (
 
 	bankv1beta1 "cosmossdk.io/api/cosmos/bank/v1beta1"
 	basev1beta1 "cosmossdk.io/api/cosmos/base/v1beta1"
-
-	"github.com/cosmos/cosmos-sdk/x/tx/signing/textual"
+	"cosmossdk.io/x/tx/signing/textual"
 )
 
 // Dedicated type for context Values, to avoid conflicts,
@@ -57,7 +55,7 @@ func TestMetadataQuerier(t *testing.T) {
 	require.Error(t, err)
 
 	// Errors if metadata querier returns an error
-	expErr := errors.New("mock error")
+	expErr := fmt.Errorf("mock error")
 	txt, err := textual.NewSignModeHandler(textual.SignModeOptions{
 		CoinMetadataQuerier: func(_ context.Context, _ string) (*bankv1beta1.Metadata, error) {
 			return nil, expErr

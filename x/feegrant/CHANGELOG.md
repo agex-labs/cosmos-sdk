@@ -25,25 +25,6 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
 
-### Bug Fixes
-
-* [#24134](https://github.com/cosmos/cosmos-sdk/pull/24134) Add validation to prevent duplicate fee grants in genesis state.
-
-## [v0.2.0](https://github.com/cosmos/cosmos-sdk/releases/tag/x/feegrant/v0.2.0) - 2025-04-24
-
-* SDK v0.53.x support.
-
-## [v0.1.1](https://github.com/cosmos/cosmos-sdk/releases/tag/x/feegrant/v0.1.1) - 2024-04-22
-
-### Improvements
-
-* (deps) [#19810](https://github.com/cosmos/cosmos-sdk/pull/19810) Upgrade SDK version due to prometheus breaking change.
-* (deps) [#19810](https://github.com/cosmos/cosmos-sdk/pull/19810) Bump `cosmossdk.io/store` to v1.1.0.
-
-### Bug Fixes
-
-* [#20114](https://github.com/cosmos/cosmos-sdk/pull/20114) Follow up of [GHSA-4j93-fm92-rp4m](https://github.com/cosmos/cosmos-sdk/security/advisories/GHSA-4j93-fm92-rp4m) for `k.GrantAllowance`.
-
 ## [v0.1.0](https://github.com/cosmos/cosmos-sdk/releases/tag/x/feegrant/v0.1.0) - 2023-11-07
 
 ### Features
@@ -55,4 +36,4 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 * [#15606](https://github.com/cosmos/cosmos-sdk/pull/15606) `NewKeeper` now takes a `KVStoreService` instead of a `StoreKey` and methods in the `Keeper` now take a `context.Context` instead of a `sdk.Context`.
 * [#15347](https://github.com/cosmos/cosmos-sdk/pull/15347) Remove global bech32 usage in keeper.
-* [#15347](https://github.com/cosmos/cosmos-sdk/pull/15347) `ValidateBasic` is treated as a no op now with acceptance of RFC001
+* [#15347](https://github.com/cosmos/cosmos-sdk/pull/15347) `ValidateBasic` is treated as a no op now with with acceptance of RFC001

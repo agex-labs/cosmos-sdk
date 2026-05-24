@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"time"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 
@@ -12,12 +13,12 @@ import (
 // BeginBlocker will persist the current header and validator set as a historical entry
 // and prune the oldest entry based on the HistoricalEntries parameter
 func (k *Keeper) BeginBlocker(ctx context.Context) error {
-	defer telemetry.ModuleMeasureSince(types.ModuleName, telemetry.Now(), telemetry.MetricKeyBeginBlocker) //nolint:staticcheck // TODO: switch to OpenTelemetry
+	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyBeginBlocker)
 	return k.TrackHistoricalInfo(ctx)
 }
 
 // EndBlocker called at every block, update validator set
 func (k *Keeper) EndBlocker(ctx context.Context) ([]abci.ValidatorUpdate, error) {
-	defer telemetry.ModuleMeasureSince(types.ModuleName, telemetry.Now(), telemetry.MetricKeyEndBlocker) //nolint:staticcheck // TODO: switch to OpenTelemetry
+	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
 	return k.BlockValidatorUpdates(ctx)
 }

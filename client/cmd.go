@@ -4,13 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/cockroachdb/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"golang.org/x/exp/slices"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -168,9 +167,8 @@ func ReadPersistentCommandFlags(clientCtx Context, flagSet *pflag.FlagSet) (Cont
 					MinVersion: tls.VersionTLS12,
 				})))
 			}
-			dialOpts = append(dialOpts, grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
 
-			grpcClient, err := grpc.NewClient(grpcURI, dialOpts...)
+			grpcClient, err := grpc.Dial(grpcURI, dialOpts...)
 			if err != nil {
 				return Context{}, err
 			}
@@ -361,17 +359,14 @@ func GetClientContextFromCmd(cmd *cobra.Command) Context {
 // SetCmdClientContext sets a command's Context value to the provided argument.
 // If the context has not been set, set the given context as the default.
 func SetCmdClientContext(cmd *cobra.Command, clientCtx Context) error {
-	cmdCtx := cmd.Context()
-	if cmdCtx == nil {
+	var cmdCtx context.Context
+
+	if cmd.Context() == nil {
 		cmdCtx = context.Background()
-	}
-
-	v := cmd.Context().Value(ClientContextKey)
-	if clientCtxPtr, ok := v.(*Context); ok {
-		*clientCtxPtr = clientCtx
 	} else {
-		cmd.SetContext(context.WithValue(cmdCtx, ClientContextKey, &clientCtx))
+		cmdCtx = cmd.Context()
 	}
 
+	cmd.SetContext(context.WithValue(cmdCtx, ClientContextKey, &clientCtx))
 	return nil
 }

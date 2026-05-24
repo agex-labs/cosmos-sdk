@@ -2,10 +2,13 @@ package runtime
 
 import (
 	"context"
+	"io"
+
+	dbm "github.com/cosmos/cosmos-db"
 
 	"cosmossdk.io/core/store"
+	storetypes "cosmossdk.io/store/types"
 
-	storetypes "github.com/cosmos/cosmos-sdk/store/v2/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -21,20 +24,12 @@ func (k kvStoreService) OpenKVStore(ctx context.Context) store.KVStore {
 	return newKVStore(sdk.UnwrapSDKContext(ctx).KVStore(k.key))
 }
 
-func NewMemStoreService(storeKey *storetypes.MemoryStoreKey) store.MemoryStoreService {
-	return &memStoreService{key: storeKey}
-}
-
 type memStoreService struct {
 	key *storetypes.MemoryStoreKey
 }
 
 func (m memStoreService) OpenMemoryStore(ctx context.Context) store.KVStore {
 	return newKVStore(sdk.UnwrapSDKContext(ctx).KVStore(m.key))
-}
-
-func NewTransientStoreService(storeKey *storetypes.TransientStoreKey) store.TransientStoreService {
-	return &transientStoreService{key: storeKey}
 }
 
 type transientStoreService struct {
@@ -109,6 +104,10 @@ func (kvStoreAdapter) CacheWrap() storetypes.CacheWrap {
 	panic("unimplemented")
 }
 
+func (kvStoreAdapter) CacheWrapWithTrace(w io.Writer, tc storetypes.TraceContext) storetypes.CacheWrap {
+	panic("unimplemented")
+}
+
 func (kvStoreAdapter) GetStoreType() storetypes.StoreType {
 	panic("unimplemented")
 }
@@ -143,7 +142,7 @@ func (s kvStoreAdapter) Set(key, value []byte) {
 	}
 }
 
-func (s kvStoreAdapter) Iterator(start, end []byte) storetypes.Iterator {
+func (s kvStoreAdapter) Iterator(start, end []byte) dbm.Iterator {
 	it, err := s.store.Iterator(start, end)
 	if err != nil {
 		panic(err)
@@ -151,7 +150,7 @@ func (s kvStoreAdapter) Iterator(start, end []byte) storetypes.Iterator {
 	return it
 }
 
-func (s kvStoreAdapter) ReverseIterator(start, end []byte) storetypes.Iterator {
+func (s kvStoreAdapter) ReverseIterator(start, end []byte) dbm.Iterator {
 	it, err := s.store.ReverseIterator(start, end)
 	if err != nil {
 		panic(err)

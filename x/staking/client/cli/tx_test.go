@@ -61,7 +61,7 @@ func (s *CLITestSuite) SetupSuite() {
 	s.clientCtx = ctxGen()
 
 	s.addrs = make([]sdk.AccAddress, 0)
-	for range 3 {
+	for i := 0; i < 3; i++ {
 		k, _, err := s.clientCtx.Keyring.NewMnemonic("NewValidator", keyring.English, sdk.FullFundraiserPath, keyring.DefaultBIP39Passphrase, hd.Secp256k1)
 		s.Require().NoError(err)
 
@@ -105,46 +105,47 @@ func (s *CLITestSuite) TestPrepareConfigForTxCreateValidator() {
 		{
 			name:        "all defaults",
 			fsModify:    func(fs *pflag.FlagSet) {},
-			expectedCfg: mkTxValCfg(cli.DefaultTokens.String()+sdk.DefaultBondDenom, "0.1", "0.2", "0.01", "1"),
+			expectedCfg: mkTxValCfg(cli.DefaultTokens.String()+sdk.DefaultBondDenom, "1", "1", "0.01", "1"),
 		},
 		{
 			name: "Custom amount",
 			fsModify: func(fs *pflag.FlagSet) {
 				require.NoError(fs.Set(cli.FlagAmount, "2000stake"))
 			},
-			expectedCfg: mkTxValCfg("2000stake", "0.1", "0.2", "0.01", "1"),
+			expectedCfg: mkTxValCfg("2000stake", "1", "1", "0.01", "1"),
 		},
 		{
 			name: "Custom commission rate",
 			fsModify: func(fs *pflag.FlagSet) {
 				require.NoError(fs.Set(cli.FlagCommissionRate, "0.54"))
 			},
-			expectedCfg: mkTxValCfg(cli.DefaultTokens.String()+sdk.DefaultBondDenom, "0.54", "0.2", "0.01", "1"),
+			expectedCfg: mkTxValCfg(cli.DefaultTokens.String()+sdk.DefaultBondDenom, "0.54", "1", "0.01", "1"),
 		},
 		{
 			name: "Custom commission max rate",
 			fsModify: func(fs *pflag.FlagSet) {
-				require.NoError(fs.Set(cli.FlagCommissionMaxRate, "0.89"))
+				require.NoError(fs.Set(cli.FlagCommissionMaxRate, "1.89"))
 			},
-			expectedCfg: mkTxValCfg(cli.DefaultTokens.String()+sdk.DefaultBondDenom, "0.1", "0.89", "0.01", "1"),
+			expectedCfg: mkTxValCfg(cli.DefaultTokens.String()+sdk.DefaultBondDenom, "1", "1.89", "0.01", "1"),
 		},
 		{
 			name: "Custom commission max change rate",
 			fsModify: func(fs *pflag.FlagSet) {
 				require.NoError(fs.Set(cli.FlagCommissionMaxChangeRate, "0.55"))
 			},
-			expectedCfg: mkTxValCfg(cli.DefaultTokens.String()+sdk.DefaultBondDenom, "0.1", "0.2", "0.55", "1"),
+			expectedCfg: mkTxValCfg(cli.DefaultTokens.String()+sdk.DefaultBondDenom, "1", "1", "0.55", "1"),
 		},
 		{
 			name: "Custom min self delegations",
 			fsModify: func(fs *pflag.FlagSet) {
 				require.NoError(fs.Set(cli.FlagMinSelfDelegation, "0.33"))
 			},
-			expectedCfg: mkTxValCfg(cli.DefaultTokens.String()+sdk.DefaultBondDenom, "0.1", "0.2", "0.01", "0.33"),
+			expectedCfg: mkTxValCfg(cli.DefaultTokens.String()+sdk.DefaultBondDenom, "1", "1", "0.01", "0.33"),
 		},
 	}
 
 	for _, tc := range tests {
+		tc := tc
 		s.Run(tc.name, func() {
 			fs, _ := cli.CreateValidatorMsgFlagSet(ip)
 			fs.String(flags.FlagName, "", "name of private key with which to sign the gentx")
@@ -291,6 +292,7 @@ func (s *CLITestSuite) TestNewCreateValidatorCmd() {
 		},
 	}
 	for _, tc := range testCases {
+		tc := tc
 		s.Run(tc.name, func() {
 			out, err := clitestutil.ExecTestCLICmd(s.clientCtx, cmd, tc.args)
 			if tc.expectErrMsg != "" {
@@ -413,6 +415,8 @@ func (s *CLITestSuite) TestNewEditValidatorCmd() {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
+
 		s.Run(tc.name, func() {
 			out, err := clitestutil.ExecTestCLICmd(s.clientCtx, cmd, tc.args)
 			if tc.expectErrMsg != "" {
@@ -474,6 +478,8 @@ func (s *CLITestSuite) TestNewDelegateCmd() {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
+
 		s.Run(tc.name, func() {
 			out, err := clitestutil.ExecTestCLICmd(s.clientCtx, cmd, tc.args)
 			if tc.expectErrMsg != "" {
@@ -554,6 +560,8 @@ func (s *CLITestSuite) TestNewRedelegateCmd() {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
+
 		s.Run(tc.name, func() {
 			out, err := clitestutil.ExecTestCLICmd(s.clientCtx, cmd, tc.args)
 			if tc.expectErrMsg != "" {
@@ -615,6 +623,8 @@ func (s *CLITestSuite) TestNewUnbondCmd() {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
+
 		s.Run(tc.name, func() {
 			out, err := clitestutil.ExecTestCLICmd(s.clientCtx, cmd, tc.args)
 			if tc.expectErrMsg != "" {
@@ -692,6 +702,8 @@ func (s *CLITestSuite) TestNewCancelUnbondingDelegationCmd() {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
+
 		s.Run(tc.name, func() {
 			out, err := clitestutil.ExecTestCLICmd(s.clientCtx, cmd, tc.args)
 			if tc.expectErrMsg != "" {

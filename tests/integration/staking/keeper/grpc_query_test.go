@@ -17,8 +17,6 @@ import (
 )
 
 func createValidatorAccs(t *testing.T, f *fixture) ([]sdk.AccAddress, []types.Validator) {
-	t.Helper()
-
 	addrs, _, validators := createValidators(&testing.T{}, f, []int64{9, 8, 7})
 	header := cmtproto.Header{
 		ChainID: "HelloChain",

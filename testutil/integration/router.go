@@ -9,14 +9,15 @@ import (
 	dbm "github.com/cosmos/cosmos-db"
 
 	"cosmossdk.io/core/appmodule"
-	"cosmossdk.io/log/v2"
+	"cosmossdk.io/log"
+	"cosmossdk.io/store"
+	"cosmossdk.io/store/metrics"
+	storetypes "cosmossdk.io/store/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/runtime"
-	"github.com/cosmos/cosmos-sdk/store/v2"
-	storetypes "github.com/cosmos/cosmos-sdk/store/v2/types"
 	simtestutil "github.com/cosmos/cosmos-sdk/testutil/sims"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
@@ -46,7 +47,6 @@ func NewIntegrationApp(
 	keys map[string]*storetypes.KVStoreKey,
 	appCodec codec.Codec,
 	modules map[string]appmodule.AppModule,
-	baseAppOptions ...func(*baseapp.BaseApp),
 ) *App {
 	db := dbm.NewMemDB()
 
@@ -56,13 +56,13 @@ func NewIntegrationApp(
 	basicModuleManager.RegisterInterfaces(interfaceRegistry)
 
 	txConfig := authtx.NewTxConfig(codec.NewProtoCodec(interfaceRegistry), authtx.DefaultSignModes)
-	bApp := baseapp.NewBaseApp(appName, logger, db, txConfig.TxDecoder(), append(baseAppOptions, baseapp.SetChainID(appName))...)
+	bApp := baseapp.NewBaseApp(appName, logger, db, txConfig.TxDecoder(), baseapp.SetChainID(appName))
 	bApp.MountKVStores(keys)
 
-	bApp.SetInitChainer(func(_ sdk.Context, _ *cmtabcitypes.RequestInitChain) (*cmtabcitypes.ResponseInitChain, error) {
+	bApp.SetInitChainer(func(ctx sdk.Context, _ *cmtabcitypes.RequestInitChain) (*cmtabcitypes.ResponseInitChain, error) {
 		for _, mod := range modules {
 			if m, ok := mod.(module.HasGenesis); ok {
-				m.InitGenesis(sdkCtx, appCodec, m.DefaultGenesis(appCodec))
+				m.InitGenesis(ctx, appCodec, m.DefaultGenesis(appCodec))
 			}
 		}
 
@@ -102,10 +102,7 @@ func NewIntegrationApp(
 		}
 	}
 
-	_, err := bApp.Commit()
-	if err != nil {
-		panic(fmt.Errorf("failed to commit application: %w", err))
-	}
+	bApp.Commit()
 
 	ctx := sdkCtx.WithBlockHeader(cmtproto.Header{ChainID: appName}).WithIsCheckTx(true)
 
@@ -132,7 +129,7 @@ func (app *App) RunMsg(msg sdk.Msg, option ...Option) (*codectypes.Any, error) {
 	}
 
 	if cfg.AutomaticCommit {
-		defer app.Commit() //nolint:errcheck // not needed in testing
+		defer app.Commit()
 	}
 
 	if cfg.AutomaticFinalizeBlock {
@@ -182,7 +179,7 @@ func (app *App) QueryHelper() *baseapp.QueryServiceTestHelper {
 // CreateMultiStore is a helper for setting up multiple stores for provided modules.
 func CreateMultiStore(keys map[string]*storetypes.KVStoreKey, logger log.Logger) storetypes.CommitMultiStore {
 	db := dbm.NewMemDB()
-	cms := store.NewCommitMultiStore(db, logger)
+	cms := store.NewCommitMultiStore(db, logger, metrics.NewNoOpMetrics())
 
 	for key := range keys {
 		cms.MountStoreWithDB(keys[key], storetypes.StoreTypeIAVL, db)

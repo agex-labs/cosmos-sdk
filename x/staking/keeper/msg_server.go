@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"context"
-	"slices"
 	"strconv"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
@@ -85,7 +85,13 @@ func (k msgServer) CreateValidator(ctx context.Context, msg *types.MsgCreateVali
 	cp := sdkCtx.ConsensusParams()
 	if cp.Validator != nil {
 		pkType := pk.Type()
-		hasKeyType := slices.Contains(cp.Validator.PubKeyTypes, pkType)
+		hasKeyType := false
+		for _, keyType := range cp.Validator.PubKeyTypes {
+			if pkType == keyType {
+				hasKeyType = true
+				break
+			}
+		}
 		if !hasKeyType {
 			return nil, errorsmod.Wrapf(
 				types.ErrValidatorPubKeyTypeNotSupported,
@@ -276,7 +282,6 @@ func (k msgServer) Delegate(ctx context.Context, msg *types.MsgDelegate) (*types
 	}
 
 	// NOTE: source funds are always unbonded
-	ctx = types.WithStrictWithdraw(ctx)
 	newShares, err := k.Keeper.Delegate(ctx, delegatorAddress, msg.Amount.Amount, types.Unbonded, validator, true)
 	if err != nil {
 		return nil, err
@@ -284,11 +289,11 @@ func (k msgServer) Delegate(ctx context.Context, msg *types.MsgDelegate) (*types
 
 	if msg.Amount.Amount.IsInt64() {
 		defer func() {
-			telemetry.IncrCounter(1, types.ModuleName, "delegate") //nolint:staticcheck // TODO: switch to OpenTelemetry
-			telemetry.SetGaugeWithLabels(                          //nolint:staticcheck // TODO: switch to OpenTelemetry
+			telemetry.IncrCounter(1, types.ModuleName, "delegate")
+			telemetry.SetGaugeWithLabels(
 				[]string{"tx", "msg", sdk.MsgTypeURL(msg)},
 				float32(msg.Amount.Amount.Int64()),
-				[]metrics.Label{telemetry.NewLabel("denom", msg.Amount.Denom)}, //nolint:staticcheck // TODO: switch to OpenTelemetry
+				[]metrics.Label{telemetry.NewLabel("denom", msg.Amount.Denom)},
 			)
 		}()
 	}
@@ -349,7 +354,6 @@ func (k msgServer) BeginRedelegate(ctx context.Context, msg *types.MsgBeginRedel
 		)
 	}
 
-	ctx = types.WithStrictWithdraw(ctx)
 	completionTime, err := k.BeginRedelegation(
 		ctx, delegatorAddress, valSrcAddr, valDstAddr, shares,
 	)
@@ -359,11 +363,11 @@ func (k msgServer) BeginRedelegate(ctx context.Context, msg *types.MsgBeginRedel
 
 	if msg.Amount.Amount.IsInt64() {
 		defer func() {
-			telemetry.IncrCounter(1, types.ModuleName, "redelegate") //nolint:staticcheck // TODO: switch to OpenTelemetry
-			telemetry.SetGaugeWithLabels(                            //nolint:staticcheck // TODO: switch to OpenTelemetry
+			telemetry.IncrCounter(1, types.ModuleName, "redelegate")
+			telemetry.SetGaugeWithLabels(
 				[]string{"tx", "msg", sdk.MsgTypeURL(msg)},
 				float32(msg.Amount.Amount.Int64()),
-				[]metrics.Label{telemetry.NewLabel("denom", msg.Amount.Denom)}, //nolint:staticcheck // TODO: switch to OpenTelemetry
+				[]metrics.Label{telemetry.NewLabel("denom", msg.Amount.Denom)},
 			)
 		}()
 	}
@@ -374,7 +378,6 @@ func (k msgServer) BeginRedelegate(ctx context.Context, msg *types.MsgBeginRedel
 			types.EventTypeRedelegate,
 			sdk.NewAttribute(types.AttributeKeySrcValidator, msg.ValidatorSrcAddress),
 			sdk.NewAttribute(types.AttributeKeyDstValidator, msg.ValidatorDstAddress),
-			sdk.NewAttribute(types.AttributeKeyDelegator, msg.DelegatorAddress),
 			sdk.NewAttribute(sdk.AttributeKeyAmount, msg.Amount.String()),
 			sdk.NewAttribute(types.AttributeKeyCompletionTime, completionTime.Format(time.RFC3339)),
 		),
@@ -422,7 +425,6 @@ func (k msgServer) Undelegate(ctx context.Context, msg *types.MsgUndelegate) (*t
 		)
 	}
 
-	ctx = types.WithStrictWithdraw(ctx)
 	completionTime, undelegatedAmt, err := k.Keeper.Undelegate(ctx, delegatorAddress, addr, shares)
 	if err != nil {
 		return nil, err
@@ -432,11 +434,11 @@ func (k msgServer) Undelegate(ctx context.Context, msg *types.MsgUndelegate) (*t
 
 	if msg.Amount.Amount.IsInt64() {
 		defer func() {
-			telemetry.IncrCounter(1, types.ModuleName, "undelegate") //nolint:staticcheck // TODO: switch to OpenTelemetry
-			telemetry.SetGaugeWithLabels(                            //nolint:staticcheck // TODO: switch to OpenTelemetry
+			telemetry.IncrCounter(1, types.ModuleName, "undelegate")
+			telemetry.SetGaugeWithLabels(
 				[]string{"tx", "msg", sdk.MsgTypeURL(msg)},
 				float32(msg.Amount.Amount.Int64()),
-				[]metrics.Label{telemetry.NewLabel("denom", msg.Amount.Denom)}, //nolint:staticcheck // TODO: switch to OpenTelemetry
+				[]metrics.Label{telemetry.NewLabel("denom", msg.Amount.Denom)},
 			)
 		}()
 	}
@@ -547,7 +549,6 @@ func (k msgServer) CancelUnbondingDelegation(ctx context.Context, msg *types.Msg
 	}
 
 	// delegate back the unbonding delegation amount to the validator
-	ctx = types.WithStrictWithdraw(ctx)
 	_, err = k.Keeper.Delegate(ctx, delegatorAddress, msg.Amount.Amount, types.Unbonding, validator, false)
 	if err != nil {
 		return nil, err
@@ -589,21 +590,12 @@ func (k msgServer) CancelUnbondingDelegation(ctx context.Context, msg *types.Msg
 
 // UpdateParams defines a method to perform updation of params exist in x/staking module.
 func (k msgServer) UpdateParams(ctx context.Context, msg *types.MsgUpdateParams) (*types.MsgUpdateParamsResponse, error) {
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	if err := sdk.ValidateAuthority(sdkCtx, k.authority, msg.Authority); err != nil {
-		return nil, err
+	if k.authority != msg.Authority {
+		return nil, errorsmod.Wrapf(govtypes.ErrInvalidSigner, "invalid authority; expected %s, got %s", k.authority, msg.Authority)
 	}
 
 	if err := msg.Params.Validate(); err != nil {
 		return nil, err
-	}
-
-	// Validate that the bond denom exists on-chain by checking if it has supply.
-	// This prevents governance from setting bond_denom to a non-existent denom,
-	// which would place the chain in an unsafe state.
-	supply := k.bankKeeper.GetSupply(ctx, msg.Params.BondDenom)
-	if supply.IsZero() {
-		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "bond denom %s does not exist or has zero supply", msg.Params.BondDenom)
 	}
 
 	// store params

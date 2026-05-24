@@ -47,7 +47,7 @@ halt-time = 0
 # It has no bearing on application state pruning which is determined by the
 # "pruning-*" configurations.
 #
-# Note: CometBFT block pruning is dependent on this parameter in conjunction
+# Note: CometBFT block pruning is dependant on this parameter in conjunction
 # with the unbonding (safety threshold) period, state pruning and state sync
 # snapshot parameters to determine the correct minimum value of
 # ResponseCommit.RetainHeight.
@@ -85,7 +85,7 @@ app-db-backend = ""
 service-name = ""
 
 # Enabled enables the application telemetry functionality. When enabled,
-# an in-memory sink is also enabled by default. Operators may also enable
+# an in-memory sink is also enabled by default. Operators may also enabled
 # other sinks such as Prometheus.
 enabled = false
 
@@ -227,9 +227,9 @@ stop-node-on-err = true
 
 [mempool]
 # Setting max-txs to 0 will allow for a unbounded amount of transactions in the mempool.
-# Setting max_txs to negative 1 (-1) will disable transactions from being inserted into the mempool (no-op mempool).
+# Setting max_txs to negative 1 (-1) will disable transactions from being inserted into the mempool.
 # Setting max_txs to a positive number (> 0) will limit the number of transactions in the mempool, by the specified amount.
 #
 # Note, this configuration only applies to SDK built-in app-side mempool
 # implementations.
-max-txs = -1
+max-txs = 5000

@@ -5,15 +5,15 @@ import (
 	"time"
 
 	"github.com/cometbft/cometbft/proto/tendermint/types"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 
-	"cosmossdk.io/log/v2"
+	"cosmossdk.io/log"
+	storetypes "cosmossdk.io/store/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec/address"
 	"github.com/cosmos/cosmos-sdk/runtime"
-	storetypes "github.com/cosmos/cosmos-sdk/store/v2/types"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	simtestutil "github.com/cosmos/cosmos-sdk/testutil/sims"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -81,7 +81,7 @@ func TestExpiredGrantsQueue(t *testing.T) {
 	queryClient := authz.NewQueryClient(queryHelper)
 
 	checkGrants := func(ctx sdk.Context, expectedNum int) {
-		require.NoError(t, authzmodule.BeginBlocker(ctx, authzKeeper))
+		authzmodule.BeginBlocker(ctx, authzKeeper)
 
 		res, err := queryClient.GranterGrants(ctx.Context(), &authz.QueryGranterGrantsRequest{
 			Granter: granter.String(),

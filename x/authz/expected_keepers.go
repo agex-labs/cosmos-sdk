@@ -20,5 +20,4 @@ type AccountKeeper interface {
 type BankKeeper interface {
 	SpendableCoins(ctx context.Context, addr sdk.AccAddress) sdk.Coins
 	IsSendEnabledCoins(ctx context.Context, coins ...sdk.Coin) error
-	BlockedAddr(addr sdk.AccAddress) bool
 }

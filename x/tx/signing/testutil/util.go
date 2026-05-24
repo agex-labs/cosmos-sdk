@@ -4,25 +4,22 @@ import (
 	"github.com/cosmos/cosmos-proto/anyutil"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"cosmossdk.io/api/cosmos/crypto/secp256k1"
 	signingv1beta1 "cosmossdk.io/api/cosmos/tx/signing/v1beta1"
 	txv1beta1 "cosmossdk.io/api/cosmos/tx/v1beta1"
-
-	"github.com/cosmos/cosmos-sdk/x/tx/signing"
+	"cosmossdk.io/x/tx/signing"
 )
 
 type HandlerArgumentOptions struct {
-	ChainID          string
-	Memo             string
-	Msg              proto.Message
-	AccNum           uint64
-	AccSeq           uint64
-	Unordered        bool
-	Timeouttimestamp *timestamppb.Timestamp
-	Fee              *txv1beta1.Fee
-	SignerAddress    string
+	ChainID       string
+	Memo          string
+	Msg           proto.Message
+	AccNum        uint64
+	AccSeq        uint64
+	Tip           *txv1beta1.Tip //nolint:staticcheck // we still need this deprecated struct
+	Fee           *txv1beta1.Fee
+	SignerAddress string
 }
 
 func MakeHandlerArguments(options HandlerArgumentOptions) (signing.SignerData, signing.TxData, error) {
@@ -54,24 +51,21 @@ func MakeHandlerArguments(options HandlerArgumentOptions) (signing.SignerData, s
 	}
 
 	txBody := &txv1beta1.TxBody{
-		Messages:         []*anypb.Any{anyMsg},
-		Memo:             options.Memo,
-		Unordered:        options.Unordered,
-		TimeoutTimestamp: options.Timeouttimestamp,
+		Messages: []*anypb.Any{anyMsg},
+		Memo:     options.Memo,
 	}
 
 	authInfo := &txv1beta1.AuthInfo{
 		Fee:         options.Fee,
+		Tip:         options.Tip,
 		SignerInfos: signerInfo,
 	}
 
-	protov2MarshalOpts := proto.MarshalOptions{Deterministic: true}
-	bodyBz, err := protov2MarshalOpts.Marshal(txBody)
+	bodyBz, err := proto.Marshal(txBody)
 	if err != nil {
 		return signing.SignerData{}, signing.TxData{}, err
 	}
-
-	authInfoBz, err := protov2MarshalOpts.Marshal(authInfo)
+	authInfoBz, err := proto.Marshal(authInfo)
 	if err != nil {
 		return signing.SignerData{}, signing.TxData{}, err
 	}

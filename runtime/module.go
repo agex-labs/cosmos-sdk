@@ -3,7 +3,6 @@ package runtime
 import (
 	"fmt"
 	"os"
-	"slices"
 
 	"github.com/cosmos/gogoproto/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
@@ -21,17 +20,17 @@ import (
 	"cosmossdk.io/core/header"
 	"cosmossdk.io/core/store"
 	"cosmossdk.io/depinject"
-	"cosmossdk.io/log/v2"
+	"cosmossdk.io/log"
+	storetypes "cosmossdk.io/store/types"
+	"cosmossdk.io/x/tx/signing"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
 	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/std"
-	storetypes "github.com/cosmos/cosmos-sdk/store/v2/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/types/msgservice"
-	"github.com/cosmos/cosmos-sdk/x/tx/signing"
 )
 
 type appModule struct {
@@ -68,7 +67,6 @@ func init() {
 			ProvideKVStoreKey,
 			ProvideTransientStoreKey,
 			ProvideMemoryStoreKey,
-			ProvideObjectStoreKey,
 			ProvideGenesisTxHandler,
 			ProvideKVStoreService,
 			ProvideMemoryStoreService,
@@ -88,7 +86,6 @@ func ProvideApp(interfaceRegistry codectypes.InterfaceRegistry) (
 	*codec.LegacyAmino,
 	*AppBuilder,
 	*baseapp.MsgServiceRouter,
-	*baseapp.GRPCQueryRouter,
 	appmodule.AppModule,
 	protodesc.Resolver,
 	protoregistry.MessageTypeResolver,
@@ -111,7 +108,6 @@ func ProvideApp(interfaceRegistry codectypes.InterfaceRegistry) (
 
 	cdc := codec.NewProtoCodec(interfaceRegistry)
 	msgServiceRouter := baseapp.NewMsgServiceRouter()
-	grpcQueryRouter := baseapp.NewGRPCQueryRouter()
 	app := &App{
 		storeKeys:         nil,
 		interfaceRegistry: interfaceRegistry,
@@ -119,17 +115,16 @@ func ProvideApp(interfaceRegistry codectypes.InterfaceRegistry) (
 		amino:             amino,
 		basicManager:      module.BasicManager{},
 		msgServiceRouter:  msgServiceRouter,
-		grpcQueryRouter:   grpcQueryRouter,
 	}
 	appBuilder := &AppBuilder{app}
 
-	return cdc, amino, appBuilder, msgServiceRouter, grpcQueryRouter, appModule{app}, protoFiles, protoTypes, nil
+	return cdc, amino, appBuilder, msgServiceRouter, appModule{app}, protoFiles, protoTypes, nil
 }
 
 type AppInputs struct {
 	depinject.In
 
-	AppConfig          *appv1alpha1.Config `optional:"true"`
+	AppConfig          *appv1alpha1.Config
 	Config             *runtimev1alpha1.Module
 	AppBuilder         *AppBuilder
 	Modules            map[string]appmodule.AppModule
@@ -201,10 +196,6 @@ func storeKeyOverride(config *runtimev1alpha1.Module, moduleName string) *runtim
 }
 
 func ProvideKVStoreKey(config *runtimev1alpha1.Module, key depinject.ModuleKey, app *AppBuilder) *storetypes.KVStoreKey {
-	if slices.Contains(config.SkipStoreKeys, key.Name()) {
-		return nil
-	}
-
 	override := storeKeyOverride(config, key.Name())
 
 	var storeKeyName string
@@ -219,28 +210,14 @@ func ProvideKVStoreKey(config *runtimev1alpha1.Module, key depinject.ModuleKey, 
 	return storeKey
 }
 
-func ProvideTransientStoreKey(config *runtimev1alpha1.Module, key depinject.ModuleKey, app *AppBuilder) *storetypes.TransientStoreKey {
-	if slices.Contains(config.SkipStoreKeys, key.Name()) {
-		return nil
-	}
-
+func ProvideTransientStoreKey(key depinject.ModuleKey, app *AppBuilder) *storetypes.TransientStoreKey {
 	storeKey := storetypes.NewTransientStoreKey(fmt.Sprintf("transient:%s", key.Name()))
 	registerStoreKey(app, storeKey)
 	return storeKey
 }
 
-func ProvideMemoryStoreKey(config *runtimev1alpha1.Module, key depinject.ModuleKey, app *AppBuilder) *storetypes.MemoryStoreKey {
-	if slices.Contains(config.SkipStoreKeys, key.Name()) {
-		return nil
-	}
-
+func ProvideMemoryStoreKey(key depinject.ModuleKey, app *AppBuilder) *storetypes.MemoryStoreKey {
 	storeKey := storetypes.NewMemoryStoreKey(fmt.Sprintf("memory:%s", key.Name()))
-	registerStoreKey(app, storeKey)
-	return storeKey
-}
-
-func ProvideObjectStoreKey(key depinject.ModuleKey, app *AppBuilder) *storetypes.ObjectStoreKey {
-	storeKey := storetypes.NewObjectStoreKey(fmt.Sprintf("object:%s", key.Name()))
 	registerStoreKey(app, storeKey)
 	return storeKey
 }
@@ -254,13 +231,13 @@ func ProvideKVStoreService(config *runtimev1alpha1.Module, key depinject.ModuleK
 	return kvStoreService{key: storeKey}
 }
 
-func ProvideMemoryStoreService(config *runtimev1alpha1.Module, key depinject.ModuleKey, app *AppBuilder) store.MemoryStoreService {
-	storeKey := ProvideMemoryStoreKey(config, key, app)
+func ProvideMemoryStoreService(key depinject.ModuleKey, app *AppBuilder) store.MemoryStoreService {
+	storeKey := ProvideMemoryStoreKey(key, app)
 	return memStoreService{key: storeKey}
 }
 
-func ProvideTransientStoreService(config *runtimev1alpha1.Module, key depinject.ModuleKey, app *AppBuilder) store.TransientStoreService {
-	storeKey := ProvideTransientStoreKey(config, key, app)
+func ProvideTransientStoreService(key depinject.ModuleKey, app *AppBuilder) store.TransientStoreService {
+	storeKey := ProvideTransientStoreKey(key, app)
 	return transientStoreService{key: storeKey}
 }
 

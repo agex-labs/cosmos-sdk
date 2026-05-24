@@ -8,13 +8,15 @@ import (
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	modulev1 "cosmossdk.io/api/cosmos/upgrade/module/v1"
 	"cosmossdk.io/core/address"
 	"cosmossdk.io/core/appmodule"
 	"cosmossdk.io/core/store"
 	"cosmossdk.io/depinject"
+	"cosmossdk.io/x/upgrade/client/cli"
+	"cosmossdk.io/x/upgrade/keeper"
+	"cosmossdk.io/x/upgrade/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -28,9 +30,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/module"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/client/cli"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
 func init() {
@@ -123,8 +122,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	}
 }
 
-// InitGenesis sets the initial module version map (if provided). Upgrade plans
-// themselves are not initialized from genesis.
+// InitGenesis is ignored, no sense in serializing future upgrades
 func (am AppModule) InitGenesis(ctx sdk.Context, _ codec.JSONCodec, _ json.RawMessage) {
 	// set version map automatically if available
 	if versionMap := am.keeper.GetInitVersionMap(); versionMap != nil {
@@ -148,7 +146,7 @@ func (am AppModule) InitGenesis(ctx sdk.Context, _ codec.JSONCodec, _ json.RawMe
 	}
 }
 
-// ExportGenesis is always empty, as there is no sense in serializing future upgrades.
+// ExportGenesis is always empty, as InitGenesis does nothing either
 func (am AppModule) ExportGenesis(_ sdk.Context, cdc codec.JSONCodec) json.RawMessage {
 	return am.DefaultGenesis(cdc)
 }
@@ -183,7 +181,6 @@ type ModuleInputs struct {
 	AddressCodec address.Codec
 
 	AppOpts servertypes.AppOptions `optional:"true"`
-	Viper   *viper.Viper           `optional:"true"`
 }
 
 type ModuleOutputs struct {
@@ -200,13 +197,7 @@ func ProvideModule(in ModuleInputs) ModuleOutputs {
 		skipUpgradeHeights = make(map[int64]bool)
 	)
 
-	if in.Viper != nil { // viper takes precedence over app options
-		for _, h := range in.Viper.GetIntSlice(server.FlagUnsafeSkipUpgrades) {
-			skipUpgradeHeights[int64(h)] = true
-		}
-
-		homePath = in.Viper.GetString(flags.FlagHome)
-	} else if in.AppOpts != nil {
+	if in.AppOpts != nil {
 		for _, h := range cast.ToIntSlice(in.AppOpts.Get(server.FlagUnsafeSkipUpgrades)) {
 			skipUpgradeHeights[int64(h)] = true
 		}

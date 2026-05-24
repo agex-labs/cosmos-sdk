@@ -2,13 +2,14 @@ package types
 
 import (
 	"fmt"
-	"slices"
+	"io"
 
 	"github.com/cometbft/cometbft/proto/tendermint/crypto"
 	dbm "github.com/cosmos/cosmos-db"
 
-	pruningtypes "github.com/cosmos/cosmos-sdk/store/v2/pruning/types"
-	snapshottypes "github.com/cosmos/cosmos-sdk/store/v2/snapshots/types"
+	"cosmossdk.io/store/metrics"
+	pruningtypes "cosmossdk.io/store/pruning/types"
+	snapshottypes "cosmossdk.io/store/snapshots/types"
 )
 
 type Store interface {
@@ -16,7 +17,7 @@ type Store interface {
 	CacheWrapper
 }
 
-// Committer is an interface for functionality to persist to disk.
+// something that can persist to disk
 type Committer interface {
 	Commit() CommitID
 	LastCommitID() CommitID
@@ -28,7 +29,7 @@ type Committer interface {
 	GetPruning() pruningtypes.PruningOptions
 }
 
-// CommitStore is an interface for Commit and Store capabilities.
+// Stores of MultiStore must implement CommitStore.
 type CommitStore interface {
 	Committer
 	Store
@@ -37,7 +38,7 @@ type CommitStore interface {
 // Queryable allows a Store to expose internal state to the abci.Query
 // interface. Multistore can route requests to the proper Store.
 //
-// This is an optional, but useful extension to any Store
+// This is an optional, but useful extension to any CommitStore
 type Queryable interface {
 	Query(*RequestQuery) (*ResponseQuery, error)
 }
@@ -84,7 +85,12 @@ func (s *StoreUpgrades) IsAdded(key string) bool {
 	if s == nil {
 		return false
 	}
-	return slices.Contains(s.Added, key)
+	for _, added := range s.Added {
+		if key == added {
+			return true
+		}
+	}
+	return false
 }
 
 // IsDeleted returns true if the given key should be deleted
@@ -92,7 +98,12 @@ func (s *StoreUpgrades) IsDeleted(key string) bool {
 	if s == nil {
 		return false
 	}
-	return slices.Contains(s.Deleted, key)
+	for _, d := range s.Deleted {
+		if d == key {
+			return true
+		}
+	}
+	return false
 }
 
 // RenamedFrom returns the oldKey if it was renamed
@@ -125,13 +136,25 @@ type MultiStore interface {
 	// If the store does not exist, panics.
 	GetStore(StoreKey) Store
 	GetKVStore(StoreKey) KVStore
-	GetObjKVStore(StoreKey) ObjKVStore
+
+	// TracingEnabled returns if tracing is enabled for the MultiStore.
+	TracingEnabled() bool
+
+	// SetTracer sets the tracer for the MultiStore that the underlying
+	// stores will utilize to trace operations. The modified MultiStore is
+	// returned.
+	SetTracer(w io.Writer) MultiStore
+
+	// SetTracingContext sets the tracing context for a MultiStore. It is
+	// implied that the caller should update the context when necessary between
+	// tracing operations. The modified MultiStore is returned.
+	SetTracingContext(TraceContext) MultiStore
 
 	// LatestVersion returns the latest version in the store
 	LatestVersion() int64
 }
 
-// CacheMultiStore extends MultiStore with a Write() method.
+// From MultiStore.CacheMultiStore()....
 type CacheMultiStore interface {
 	MultiStore
 	Write() // Writes operations to underlying KVStore
@@ -143,12 +166,15 @@ type CommitMultiStore interface {
 	MultiStore
 	snapshottypes.Snapshotter
 
-	// EarliestVersion returns the earliest version in the store
-	EarliestVersion() int64
-
 	// Mount a store of type using the given db.
 	// If db == nil, the new store will use the CommitMultiStore db.
 	MountStoreWithDB(key StoreKey, typ StoreType, db dbm.DB)
+
+	// Panics on a nil key.
+	GetCommitStore(key StoreKey) CommitStore
+
+	// Panics on a nil key.
+	GetCommitKVStore(key StoreKey) CommitKVStore
 
 	// Load the latest persisted version. Called once after all calls to
 	// Mount*Store() are complete.
@@ -171,7 +197,7 @@ type CommitMultiStore interface {
 	LoadVersion(ver int64) error
 
 	// Set an inter-block (persistent) cache that maintains a mapping from
-	// StoreKeys to KVStores.
+	// StoreKeys to CommitKVStores.
 	SetInterBlockCache(MultiStorePersistentCache)
 
 	// SetInitialVersion sets the initial version of the IAVL tree. It is used when
@@ -184,12 +210,6 @@ type CommitMultiStore interface {
 	// SetIAVLDisableFastNode enables/disables fastnode feature on iavl.
 	SetIAVLDisableFastNode(disable bool)
 
-	// SetIAVLSyncPruning set sync/async pruning on iavl.
-	// It is not recommended to use this option.
-	// It is here to enable the prune command to force this to true, allowing the command to wait
-	// for the pruning to finish before returning.
-	SetIAVLSyncPruning(sync bool)
-
 	// RollbackToVersion rollback the db to specific version(height).
 	RollbackToVersion(version int64) error
 
@@ -201,30 +221,33 @@ type CommitMultiStore interface {
 
 	// PopStateCache returns the accumulated state change messages from the CommitMultiStore
 	PopStateCache() []*StoreKVPair
+
+	// SetMetrics sets the metrics for the KVStore
+	SetMetrics(metrics metrics.StoreMetrics)
 }
 
 //---------subsp-------------------------------
 // KVStore
 
-// GBasicKVStore is a simple interface to get/set data
-type GBasicKVStore[V any] interface {
+// BasicKVStore is a simple interface to get/set data
+type BasicKVStore interface {
 	// Get returns nil if key doesn't exist. Panics on nil key.
-	Get(key []byte) V
+	Get(key []byte) []byte
 
 	// Has checks if a key exists. Panics on nil key.
 	Has(key []byte) bool
 
 	// Set sets the key. Panics on nil key or value.
-	Set(key []byte, value V)
+	Set(key, value []byte)
 
 	// Delete deletes the key. Panics on nil key.
 	Delete(key []byte)
 }
 
-// GKVStore additionally provides iteration and deletion
-type GKVStore[V any] interface {
+// KVStore additionally provides iteration and deletion
+type KVStore interface {
 	Store
-	GBasicKVStore[V]
+	BasicKVStore
 
 	// Iterator over a domain of keys in ascending order. End is exclusive.
 	// Start must be less than end, or the Iterator is invalid.
@@ -232,54 +255,18 @@ type GKVStore[V any] interface {
 	// To iterate over entire domain, use store.Iterator(nil, nil)
 	// CONTRACT: No writes may happen within a domain while an iterator exists over it.
 	// Exceptionally allowed for cachekv.Store, safe to write in the modules.
-	Iterator(start, end []byte) GIterator[V]
+	Iterator(start, end []byte) Iterator
 
 	// Iterator over a domain of keys in descending order. End is exclusive.
 	// Start must be less than end, or the Iterator is invalid.
 	// Iterator must be closed by caller.
 	// CONTRACT: No writes may happen within a domain while an iterator exists over it.
 	// Exceptionally allowed for cachekv.Store, safe to write in the modules.
-	ReverseIterator(start, end []byte) GIterator[V]
+	ReverseIterator(start, end []byte) Iterator
 }
 
-// GIterator is the generic version of dbm's Iterator
-type GIterator[V any] interface {
-	// Domain returns the start (inclusive) and end (exclusive) limits of the iterator.
-	// CONTRACT: start, end readonly []byte
-	Domain() (start, end []byte)
-
-	// Valid returns whether the current iterator is valid. Once invalid, the Iterator remains
-	// invalid forever.
-	Valid() bool
-
-	// Next moves the iterator to the next key in the database, as defined by order of iteration.
-	// If Valid returns false, this method will panic.
-	Next()
-
-	// Key returns the key at the current position. Panics if the iterator is invalid.
-	// CONTRACT: key readonly []byte
-	Key() (key []byte)
-
-	// Value returns the value at the current position. Panics if the iterator is invalid.
-	// CONTRACT: value readonly []byte
-	Value() (value V)
-
-	// Error returns the last error encountered by the iterator, if any.
-	Error() error
-
-	// Close closes the iterator, releasing any allocated resources.
-	Close() error
-}
-
-type (
-	Iterator     = GIterator[[]byte]
-	BasicKVStore = GBasicKVStore[[]byte]
-	KVStore      = GKVStore[[]byte]
-
-	ObjIterator     = GIterator[any]
-	ObjBasicKVStore = GBasicKVStore[any]
-	ObjKVStore      = GKVStore[any]
-)
+// Iterator is an alias db's Iterator for convenience.
+type Iterator = dbm.Iterator
 
 // CacheKVStore branches a KVStore and provides read cache functionality.
 // After calling .Write() on the CacheKVStore, all previously created
@@ -289,6 +276,14 @@ type CacheKVStore interface {
 
 	// Writes operations to underlying KVStore
 	Write()
+}
+
+// LockingStore allows for unlocking the associated lock keys that were acquired during
+// locking with CacheWrapWithLocks on a LockingCacheWrapper.
+type LockingStore interface {
+	Store
+
+	Unlock()
 }
 
 // CommitKVStore is an interface for MultiStore.
@@ -305,15 +300,29 @@ type CommitKVStore interface {
 // a Committer, since Commit ephemeral store make no sense. It can return KVStore,
 // HeapStore, SpaceStore, etc.
 type CacheWrap interface {
-	CacheWrapper
-
 	// Write syncs with the underlying store.
 	Write()
+
+	// CacheWrap recursively wraps again.
+	CacheWrap() CacheWrap
+
+	// CacheWrapWithTrace recursively wraps again with tracing enabled.
+	CacheWrapWithTrace(w io.Writer, tc TraceContext) CacheWrap
 }
 
 type CacheWrapper interface {
 	// CacheWrap branches a store.
 	CacheWrap() CacheWrap
+
+	// CacheWrapWithTrace branches a store with tracing enabled.
+	CacheWrapWithTrace(w io.Writer, tc TraceContext) CacheWrap
+}
+
+type LockingCacheWrapper interface {
+	CacheWrapper
+
+	// CacheWrapWithLocks branches a store with the specific lock keys being acquired.
+	CacheWrapWithLocks(lockKeys [][]byte) CacheWrap
 }
 
 func (cid CommitID) IsZero() bool {
@@ -327,7 +336,7 @@ func (cid CommitID) String() string {
 //----------------------------------------
 // Store types
 
-// StoreType is an enum for a kind of store.
+// kind of store
 type StoreType int
 
 const (
@@ -338,7 +347,6 @@ const (
 	StoreTypeMemory
 	StoreTypeSMT
 	StoreTypePersistent
-	StoreTypeObject
 )
 
 func (st StoreType) String() string {
@@ -363,9 +371,6 @@ func (st StoreType) String() string {
 
 	case StoreTypePersistent:
 		return "StoreTypePersistent"
-
-	case StoreTypeObject:
-		return "StoreTypeObject"
 	}
 
 	return "unknown store type"
@@ -387,7 +392,8 @@ type CapabilityKey StoreKey
 // KVStoreKey is used for accessing substores.
 // Only the pointer value should ever be used - it functions as a capabilities key.
 type KVStoreKey struct {
-	name string
+	name    string
+	locking bool
 }
 
 // NewKVStoreKey returns a new pointer to a KVStoreKey.
@@ -402,7 +408,7 @@ func NewKVStoreKey(name string) *KVStoreKey {
 }
 
 // NewKVStoreKeys returns a map of new  pointers to KVStoreKey's.
-// The function will panic if there is a potential conflict in names (see `assertNoCommonPrefix`
+// The function will panic if there is a potential conflict in names (see `assertNoPrefix`
 // function for more details).
 func NewKVStoreKeys(names ...string) map[string]*KVStoreKey {
 	assertNoCommonPrefix(names)
@@ -419,7 +425,19 @@ func (key *KVStoreKey) Name() string {
 }
 
 func (key *KVStoreKey) String() string {
-	return fmt.Sprintf("KVStoreKey{%p, %s}", key, key.name)
+	return fmt.Sprintf("KVStoreKey{%p, %s, locking: %t}", key, key.name, key.locking)
+}
+
+func (key *KVStoreKey) IsLocking() bool {
+	return key.locking
+}
+
+// Enables locking for the store key.
+func (key *KVStoreKey) WithLocking() *KVStoreKey {
+	return &KVStoreKey{
+		name:    key.name,
+		locking: true,
+	}
 }
 
 // TransientStoreKey is used for indexing transient stores in a MultiStore
@@ -427,7 +445,7 @@ type TransientStoreKey struct {
 	name string
 }
 
-// NewTransientStoreKey constructs new TransientStoreKey
+// Constructs new TransientStoreKey
 // Must return a pointer according to the ocap principle
 func NewTransientStoreKey(name string) *TransientStoreKey {
 	return &TransientStoreKey{
@@ -435,37 +453,14 @@ func NewTransientStoreKey(name string) *TransientStoreKey {
 	}
 }
 
-// Name implements StoreKey, returning the key name.
+// Implements StoreKey
 func (key *TransientStoreKey) Name() string {
 	return key.name
 }
 
-// String implements StoreKey, returning a human-readable string representation of the key.
+// Implements StoreKey
 func (key *TransientStoreKey) String() string {
 	return fmt.Sprintf("TransientStoreKey{%p, %s}", key, key.name)
-}
-
-// ObjectStoreKey is used for indexing transient stores in a MultiStore
-type ObjectStoreKey struct {
-	name string
-}
-
-// NewObjectStoreKey constructs new ObjectStoreKey
-// Must return a pointer according to the ocap principle
-func NewObjectStoreKey(name string) *ObjectStoreKey {
-	return &ObjectStoreKey{
-		name: name,
-	}
-}
-
-// Name returns the name of the ObjectStoreKey
-func (key *ObjectStoreKey) Name() string {
-	return key.name
-}
-
-// String returns a string representation of the ObjectStoreKey
-func (key *ObjectStoreKey) String() string {
-	return fmt.Sprintf("ObjectStoreKey{%p, %s}", key, key.name)
 }
 
 // MemoryStoreKey defines a typed key to be used with an in-memory KVStore.
@@ -485,6 +480,35 @@ func (key *MemoryStoreKey) Name() string {
 // String returns a stringified representation of the MemoryStoreKey.
 func (key *MemoryStoreKey) String() string {
 	return fmt.Sprintf("MemoryStoreKey{%p, %s}", key, key.name)
+}
+
+//----------------------------------------
+
+// TraceContext contains TraceKVStore context data. It will be written with
+// every trace operation.
+type TraceContext map[string]interface{}
+
+// Clone clones tc into another instance of TraceContext.
+func (tc TraceContext) Clone() TraceContext {
+	ret := TraceContext{}
+	for k, v := range tc {
+		ret[k] = v
+	}
+
+	return ret
+}
+
+// Merge merges value of newTc into tc.
+func (tc TraceContext) Merge(newTc TraceContext) TraceContext {
+	if tc == nil {
+		tc = TraceContext{}
+	}
+
+	for k, v := range newTc {
+		tc[k] = v
+	}
+
+	return tc
 }
 
 // MultiStorePersistentCache defines an interface which provides inter-block
@@ -525,27 +549,13 @@ func NewTransientStoreKeys(names ...string) map[string]*TransientStoreKey {
 
 // NewMemoryStoreKeys constructs a new map matching store key names to their
 // respective MemoryStoreKey references.
-// The function will panic if there is a potential conflict in names (see `assertNoCommonPrefix`
+// The function will panic if there is a potential conflict in names (see `assertNoPrefix`
 // function for more details).
 func NewMemoryStoreKeys(names ...string) map[string]*MemoryStoreKey {
 	assertNoCommonPrefix(names)
 	keys := make(map[string]*MemoryStoreKey)
 	for _, n := range names {
 		keys[n] = NewMemoryStoreKey(n)
-	}
-
-	return keys
-}
-
-// NewObjectStoreKeys constructs a new map matching store key names to their
-// respective ObjectStoreKey references.
-// The function will panic if there is a potential conflict in names (see `assertNoCommonPrefix`
-// function for more details).
-func NewObjectStoreKeys(names ...string) map[string]*ObjectStoreKey {
-	assertNoCommonPrefix(names)
-	keys := make(map[string]*ObjectStoreKey)
-	for _, n := range names {
-		keys[n] = NewObjectStoreKey(n)
 	}
 
 	return keys

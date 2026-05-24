@@ -10,12 +10,12 @@ import (
 
 	"cosmossdk.io/core/appmodule"
 	"cosmossdk.io/core/comet"
-	"cosmossdk.io/log/v2"
+	"cosmossdk.io/log"
+	storetypes "cosmossdk.io/store/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
 	"github.com/cosmos/cosmos-sdk/runtime"
-	storetypes "github.com/cosmos/cosmos-sdk/store/v2/types"
 	"github.com/cosmos/cosmos-sdk/testutil/integration"
 	simtestutil "github.com/cosmos/cosmos-sdk/testutil/sims"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -50,14 +50,13 @@ type fixture struct {
 	valAddrs []sdk.ValAddress
 }
 
-func initFixture(tb testing.TB) *fixture {
-	tb.Helper()
+func initFixture(t testing.TB) *fixture {
 	keys := storetypes.NewKVStoreKeys(
 		authtypes.StoreKey, banktypes.StoreKey, slashingtypes.StoreKey, stakingtypes.StoreKey,
 	)
 	cdc := moduletestutil.MakeTestEncodingConfig(auth.AppModuleBasic{}).Codec
 
-	logger := log.NewTestLogger(tb)
+	logger := log.NewTestLogger(t)
 	cms := integration.CreateMultiStore(keys, logger)
 
 	newCtx := sdk.NewContext(cms, cmtproto.Header{}, true, logger)
@@ -96,9 +95,9 @@ func initFixture(tb testing.TB) *fixture {
 
 	slashingKeeper := slashingkeeper.NewKeeper(cdc, &codec.LegacyAmino{}, runtime.NewKVStoreService(keys[slashingtypes.StoreKey]), stakingKeeper, authority.String())
 
-	bankModule := bank.NewAppModule(cdc, bankKeeper, accountKeeper)
-	stakingModule := staking.NewAppModule(cdc, stakingKeeper, accountKeeper, bankKeeper)
-	slashingModule := slashing.NewAppModule(cdc, slashingKeeper, accountKeeper, bankKeeper, stakingKeeper, cdc.InterfaceRegistry())
+	bankModule := bank.NewAppModule(cdc, bankKeeper, accountKeeper, nil)
+	stakingModule := staking.NewAppModule(cdc, stakingKeeper, accountKeeper, bankKeeper, nil)
+	slashingModule := slashing.NewAppModule(cdc, slashingKeeper, accountKeeper, bankKeeper, stakingKeeper, nil, cdc.InterfaceRegistry())
 
 	integrationApp := integration.NewIntegrationApp(newCtx, logger, keys, cdc, map[string]appmodule.AppModule{
 		banktypes.ModuleName:     bankModule,
@@ -113,18 +112,18 @@ func initFixture(tb testing.TB) *fixture {
 	slashingtypes.RegisterQueryServer(integrationApp.QueryHelper(), slashingkeeper.NewQuerier(slashingKeeper))
 
 	// set default staking params
-	require.NoError(tb, stakingKeeper.SetParams(sdkCtx, stakingtypes.DefaultParams()))
+	stakingKeeper.SetParams(sdkCtx, stakingtypes.DefaultParams())
 
 	// TestParams set the SignedBlocksWindow to 1000 and MaxMissedBlocksPerWindow to 500
-	require.NoError(tb, slashingKeeper.SetParams(sdkCtx, testutil.TestParams()))
+	slashingKeeper.SetParams(sdkCtx, testutil.TestParams())
 	addrDels := simtestutil.AddTestAddrsIncremental(bankKeeper, stakingKeeper, sdkCtx, 6, stakingKeeper.TokensFromConsensusPower(sdkCtx, 200))
 	valAddrs := simtestutil.ConvertAddrsToValAddrs(addrDels)
 
 	info1 := slashingtypes.NewValidatorSigningInfo(sdk.ConsAddress(addrDels[0]), int64(4), int64(3), time.Unix(2, 0), false, int64(10))
 	info2 := slashingtypes.NewValidatorSigningInfo(sdk.ConsAddress(addrDels[1]), int64(5), int64(4), time.Unix(2, 0), false, int64(10))
 
-	require.NoError(tb, slashingKeeper.SetValidatorSigningInfo(sdkCtx, sdk.ConsAddress(addrDels[0]), info1))
-	require.NoError(tb, slashingKeeper.SetValidatorSigningInfo(sdkCtx, sdk.ConsAddress(addrDels[1]), info2))
+	slashingKeeper.SetValidatorSigningInfo(sdkCtx, sdk.ConsAddress(addrDels[0]), info1)
+	slashingKeeper.SetValidatorSigningInfo(sdkCtx, sdk.ConsAddress(addrDels[1]), info2)
 
 	return &fixture{
 		app:            integrationApp,
@@ -144,7 +143,7 @@ func TestUnJailNotBonded(t *testing.T) {
 	p, err := f.stakingKeeper.GetParams(f.ctx)
 	assert.NilError(t, err)
 	p.MaxValidators = 5
-	require.NoError(t, f.stakingKeeper.SetParams(f.ctx, p))
+	f.stakingKeeper.SetParams(f.ctx, p)
 
 	pks := simtestutil.CreateTestPubKeys(6)
 	tstaking := stakingtestutil.NewHelper(t, f.ctx, f.stakingKeeper)
@@ -155,8 +154,7 @@ func TestUnJailNotBonded(t *testing.T) {
 		tstaking.CreateValidatorWithValPower(addr, val, 100, true)
 	}
 
-	_, err = f.stakingKeeper.EndBlocker(f.ctx)
-	require.NoError(t, err)
+	f.stakingKeeper.EndBlocker(f.ctx)
 	f.ctx = f.ctx.WithBlockHeight(f.ctx.BlockHeight() + 1)
 
 	// create a 6th validator with less power than the cliff validator (won't be bonded)
@@ -169,8 +167,7 @@ func TestUnJailNotBonded(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, res != nil)
 
-	_, err = f.stakingKeeper.EndBlocker(f.ctx)
-	require.NoError(t, err)
+	f.stakingKeeper.EndBlocker(f.ctx)
 	f.ctx = f.ctx.WithBlockHeight(f.ctx.BlockHeight() + 1)
 
 	tstaking.CheckValidator(addr, stakingtypes.Unbonded, false)
@@ -179,8 +176,7 @@ func TestUnJailNotBonded(t *testing.T) {
 	assert.Equal(t, p.BondDenom, tstaking.Denom)
 	tstaking.Undelegate(sdk.AccAddress(addr), addr, f.stakingKeeper.TokensFromConsensusPower(f.ctx, 1), true)
 
-	_, err = f.stakingKeeper.EndBlocker(f.ctx)
-	require.NoError(t, err)
+	f.stakingKeeper.EndBlocker(f.ctx)
 	f.ctx = f.ctx.WithBlockHeight(f.ctx.BlockHeight() + 1)
 
 	// verify that validator is jailed
@@ -197,14 +193,12 @@ func TestUnJailNotBonded(t *testing.T) {
 	)
 	assert.ErrorContains(t, err, "cannot be unjailed")
 
-	_, err = f.stakingKeeper.EndBlocker(f.ctx)
-	require.NoError(t, err)
+	f.stakingKeeper.EndBlocker(f.ctx)
 	f.ctx = f.ctx.WithBlockHeight(f.ctx.BlockHeight() + 1)
 	// bond to meet minimum self-delegation
 	tstaking.DelegateWithPower(sdk.AccAddress(addr), addr, 1)
 
-	_, err = f.stakingKeeper.EndBlocker(f.ctx)
-	require.NoError(t, err)
+	f.stakingKeeper.EndBlocker(f.ctx)
 	f.ctx = f.ctx.WithBlockHeight(f.ctx.BlockHeight() + 1)
 
 	// verify we can immediately unjail
@@ -253,7 +247,7 @@ func TestHandleNewValidator(t *testing.T) {
 
 	val, err := f.stakingKeeper.Validator(f.ctx, addr)
 	require.NoError(t, err)
-	assert.DeepEqual(t, amt, val.GetValidatorPower())
+	assert.DeepEqual(t, amt, val.GetBondedTokens())
 
 	// Now a validator, for two blocks
 	assert.NilError(t, f.slashingKeeper.HandleValidatorSignature(f.ctx, valpubkey.Address(), 100, comet.BlockIDFlagCommit))
@@ -349,7 +343,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	params, err := f.stakingKeeper.GetParams(f.ctx)
 	require.NoError(t, err)
 	params.MaxValidators = 1
-	require.NoError(t, f.stakingKeeper.SetParams(f.ctx, params))
+	f.stakingKeeper.SetParams(f.ctx, params)
 	power := int64(100)
 
 	pks := simtestutil.CreateTestPubKeys(3)
@@ -443,7 +437,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	assert.NilError(t, err)
 
 	// validator rejoins and starts signing again
-	require.NoError(t, f.stakingKeeper.Unjail(f.ctx, consAddr))
+	f.stakingKeeper.Unjail(f.ctx, consAddr)
 
 	err = f.slashingKeeper.HandleValidatorSignature(f.ctx, val.Address(), newPower, comet.BlockIDFlagCommit)
 	assert.NilError(t, err)
