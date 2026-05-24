@@ -9,12 +9,12 @@ require (
 	cosmossdk.io/depinject v1.0.0-alpha.4
 	cosmossdk.io/errors v1.0.1
 	cosmossdk.io/log v1.3.1
-	cosmossdk.io/math v1.3.0
+	cosmossdk.io/math v1.4.0
 	cosmossdk.io/store v1.0.2
 	cosmossdk.io/x/tx v0.13.1
 	github.com/99designs/keyring v1.2.1
 	github.com/bgentry/speakeasy v0.1.1-0.20220910012023-760eaf8b6816
-	github.com/bits-and-blooms/bitset v1.8.0
+	github.com/bits-and-blooms/bitset v1.10.0
 	github.com/chzyer/readline v1.5.1
 	github.com/cockroachdb/apd/v2 v2.0.2
 	github.com/cockroachdb/errors v1.11.1
@@ -27,7 +27,7 @@ require (
 	github.com/cosmos/gogoproto v1.4.11
 	github.com/cosmos/ledger-cosmos-go v0.13.3
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0
-	github.com/ethereum/go-ethereum v1.12.0
+	github.com/ethereum/go-ethereum v1.13.15
 	github.com/golang/mock v1.6.0
 	github.com/golang/protobuf v1.5.4
 	github.com/google/go-cmp v0.7.0
@@ -201,6 +201,6 @@ retract (
 	v0.43.0
 )
 
-replace github.com/cometbft/cometbft => github.com/agex-labs/cometbft v0.38.6-1-agex
+replace github.com/cometbft/cometbft => github.com/agex-labs/cometbft v0.38.6-2-agex
 
 replace cosmossdk.io/store => github.com/agex-labs/cosmos-sdk/store v1.0.3-1-agex
